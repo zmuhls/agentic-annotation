@@ -1,0 +1,14 @@
+# secrets — never commit
+config.json
+
+# annotation content (includes private Hypothesis groups) and watcher state
+data/
+actions/
+architecture/map.jsonl
+architecture/overview.md
+architecture/emergent-nodes.md
+logs/
+
+# python
+__pycache__/
+*.pyc
