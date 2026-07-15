@@ -31,7 +31,17 @@ from build_ia import (  # noqa: E402
     title_of, write_overview,
 )
 
-CONFIG = json.loads((ROOT / "config.json").read_text())
+def load_config():
+    # Adopters (and the test suite / CI) clone without the private config.json;
+    # fall back to the committed example so imports never hard-fail on setup.
+    for name in ("config.json", "config.example.json"):
+        path = ROOT / name
+        if path.exists():
+            return json.loads(path.read_text())
+    return {}
+
+
+CONFIG = load_config()
 API = "https://api.hypothes.is/api"
 MODEL = CONFIG.get("model", "claude-sonnet-5")
 

@@ -8,10 +8,12 @@
 - `process()`'s failure log now records exception type + crash file:line, so the next non-obvious failure is diagnosable instead of guessed.
 - Verified: unit repro of all crashing shapes now passes; `classify_prompt` builds on both the real annotation and a synthetic `document=[]` shape; live watcher state untouched (no cursor rewind needed).
 
-**Dependencies:** none added (`traceback` is stdlib).
+**Added — pytest suite (35 tests, no real API spend).** New `tests/` covers the pure extractors (locking in today's shape fixes, incl. `document=[]`, nested `target` lists, dict-valued selectors) and the poll classify path with the `claude` subprocess fully mocked — `call_sonnet` JSON parsing (clean object, prose-wrapped, list envelope, error paths) and `process` fallback-to-rules. Runs in 0.08s. To make the suite (and future CI) runnable without the private `config.json`, `poll.py` now loads config with a fallback to the committed `config.example.json` — also smooths first-run for adopters.
+
+**Dependencies:** none added to the runtime (`traceback` is stdlib). Tests use `pytest` (dev-only, already installed; not a runtime dep).
 
 **Next candidates (agenda):**
+- PRO-GRADE (continue): `ruff` config, `pyproject.toml` with console entry point, MIT LICENSE, CHANGELOG.md, GitHub Actions CI running pytest + ruff (the suite added today is CI-ready now that imports no longer need `config.json`).
 - GENERALIZABILITY: move hardcoded `GROUP_NAMES`/`GROUP_NODES`/`ARTIFACT_DOMAINS`/`DH_DOMAINS`/`AIML_DOMAINS` out of `build_ia.py` into config, or fetch groups live from `/api/profile/groups`; move `user`/domains/paths to `config.json`.
-- PRO-GRADE: add pytest suite (mock API + `claude` subprocess — no real spend), `ruff`, `pyproject.toml` with console entry point, MIT LICENSE, CHANGELOG.md, GitHub Actions CI. The shape bugs fixed today are exactly what a mocked test suite would have caught.
 - ADOPTERS: INSTALL.md covering macOS launchd + Linux systemd/cron; script to bootstrap a starter `ia.md` from a new user's own annotation profile.
 - ROBUSTNESS: per-classification cost visibility (~$0.10 each) in the log; batch handling when many annotations arrive at once.
