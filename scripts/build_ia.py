@@ -127,10 +127,20 @@ def node_for(ann):
     return "inbox"
 
 
+def title_of(ann):
+    # The API returns `document` as an empty list for annotations caught mid-
+    # creation (before metadata populates), so coerce anything non-dict away.
+    doc = ann.get("document")
+    doc = doc if isinstance(doc, dict) else {}
+    return (doc.get("title") or [""])[0]
+
+
 def quote_of(ann):
-    for target in ann.get("target", []):
+    for target in ann.get("target", []) or []:
+        if not isinstance(target, dict):
+            continue
         for sel in target.get("selector", []) or []:
-            if sel.get("type") == "TextQuoteSelector":
+            if isinstance(sel, dict) and sel.get("type") == "TextQuoteSelector":
                 return sel.get("exact", "")
     return ""
 
@@ -142,7 +152,7 @@ def record_for(ann):
         "workflow": workflow_for(ann.get("tags", [])),
         "actions": actions_for(ann.get("tags", [])),
         "uri": ann.get("uri", ""),
-        "title": (ann.get("document", {}).get("title") or [""])[0],
+        "title": title_of(ann),
         "created": ann.get("created", ""),
         "updated": ann.get("updated", ""),
         "tags": ann.get("tags", []),

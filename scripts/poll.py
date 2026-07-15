@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -27,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_ia import (  # noqa: E402
     ACTION_TAGS, GROUP_NAMES, actions_for, node_for, quote_of, record_for,
-    write_overview,
+    title_of, write_overview,
 )
 
 CONFIG = json.loads((ROOT / "config.json").read_text())
@@ -101,7 +102,7 @@ def classify_prompt(ann):
     predicted = node_for(ann)
     payload = {
         "uri": ann.get("uri", ""),
-        "title": (ann.get("document", {}).get("title") or [""])[0],
+        "title": title_of(ann),
         "group": group,
         "tags": ann.get("tags", []),
         "quoted_passage": quote_of(ann)[:600],
@@ -182,7 +183,7 @@ def write_action_file(ann, action):
     ACTIONS_DIR.mkdir(exist_ok=True)
     date = ann.get("updated", "")[:10] or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     path = ACTIONS_DIR / f"{date}-{action['type']}-{ann['id']}.md"
-    title = (ann.get("document", {}).get("title") or [""])[0]
+    title = title_of(ann)
     path.write_text(f"""# {action['type'].capitalize()}: {title or ann.get('uri', '')}
 
 - **artifact**: {action.get('artifact', ann.get('uri', ''))}
@@ -230,7 +231,10 @@ def process(ann, dry_run=False):
         if result.get("new_node") and not dry_run:
             note_emergent(record["node"], record.get("role", ""), ann)
     except Exception as e:
-        log(f"  sonnet failed for {ann['id']}: {e}; falling back to rules")
+        tb = traceback.extract_tb(e.__traceback__)
+        where = f" at {tb[-1].filename.split('/')[-1]}:{tb[-1].lineno}" if tb else ""
+        log(f"  sonnet failed for {ann['id']}: {type(e).__name__}: {e}{where}"
+            "; falling back to rules")
         record["classified_by"] = "rules-fallback"
     # every tagged action produces a file: stub any the model missed
     produced = {a.get("type") for a in actions}
