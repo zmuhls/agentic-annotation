@@ -79,3 +79,16 @@ python3 scripts/fetch_annotations.py && python3 scripts/build_ia.py
 
 Editing `architecture/ia.md` immediately changes how Sonnet classifies —
 it is included in every classification prompt.
+
+## Tests
+
+The suite mocks the Hypothesis API and the `claude` subprocess, so it never
+spends API money, and `conftest.py` redirects every write path to a tmp dir so
+runs never touch `logs/`, `data/`, or `actions/`. `pytest` is a dev-only
+dependency (no runtime deps beyond the stdlib):
+
+```sh
+python3 -m venv .venv && . .venv/bin/activate
+pip install pytest
+pytest
+```

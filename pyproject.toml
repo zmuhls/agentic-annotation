@@ -1,0 +1,6 @@
+# Minimal project config. Packaging + console entry points are a separate,
+# larger task (see reports agenda); for now this only pins the pytest layout so
+# `pytest` runs from the repo root with no arguments, in CI or a fresh clone.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
