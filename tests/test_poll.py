@@ -107,6 +107,85 @@ class TestProcess:
         assert rec["title"] == ""
 
 
+class TestSearchRetries:
+    """The network is never mocked away by accident here: every test replaces
+    `urlopen`, so no test can reach api.hypothes.is."""
+
+    def _urlopen(self, monkeypatch, outcomes):
+        """Serve `outcomes` in order; an Exception instance is raised."""
+        calls = []
+
+        def fake(req, timeout=None):
+            calls.append(req)
+            outcome = outcomes[len(calls) - 1]
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(poll.urllib.request, "urlopen", fake)
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)  # no real backoff
+        return calls
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = json.dumps(payload).encode()
+
+        def read(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def test_retries_transient_oserror_then_succeeds(self, monkeypatch):
+        calls = self._urlopen(monkeypatch, [
+            ConnectionResetError(54, "Connection reset by peer"),
+            self._Resp({"rows": [{"id": "a"}]}),
+        ])
+        assert poll.search({})["rows"] == [{"id": "a"}]
+        assert len(calls) == 2
+
+    def test_raises_after_exhausting_attempts(self, monkeypatch):
+        err = poll.urllib.error.URLError("no route to host")
+        calls = self._urlopen(monkeypatch, [err, err, err])
+        with pytest.raises(OSError):
+            poll.search({}, attempts=3)
+        assert len(calls) == 3
+
+    def test_retries_rate_limit_but_not_unauthorized(self, monkeypatch):
+        http = poll.urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)
+        calls = self._urlopen(monkeypatch, [http, self._Resp({"rows": []})])
+        assert poll.search({})["rows"] == []
+        assert len(calls) == 2
+
+        unauth = poll.urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)
+        calls = self._urlopen(monkeypatch, [unauth, self._Resp({"rows": []})])
+        with pytest.raises(poll.urllib.error.HTTPError):
+            poll.search({})
+        assert len(calls) == 1  # no retry on a real fault
+
+
+class TestNetworkFailureNotice:
+    def test_logs_once_per_outage_and_clears_on_recovery(self):
+        msg = "hypothesis api unreachable (dns); retrying next run"
+        poll.note_network_failure(msg)
+        poll.note_network_failure(msg)  # same outage — must not log again
+        assert poll.LOG_FILE.read_text().count("unreachable") == 1
+
+        poll.note_network_failure("hypothesis api returned 503 x; retrying next run")
+        assert "503" in poll.LOG_FILE.read_text()
+
+        poll.clear_network_failure()
+        assert not poll.NETFAIL_FILE.exists()
+        assert "reachable again" in poll.LOG_FILE.read_text()
+
+    def test_clear_is_a_noop_when_no_outage(self):
+        poll.clear_network_failure()
+        assert not poll.LOG_FILE.exists()
+
+
 class TestLoadConfig:
     def test_returns_dict(self):
         # config.json or config.example.json is present in-repo

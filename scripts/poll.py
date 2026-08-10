@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -27,9 +28,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_ia import (  # noqa: E402
-    ACTION_TAGS, GROUP_NAMES, actions_for, node_for, quote_of, record_for,
-    title_of, write_overview,
+    GROUP_NAMES,
+    actions_for,
+    node_for,
+    quote_of,
+    record_for,
+    title_of,
+    write_overview,
 )
+
 
 def load_config():
     # Adopters (and the test suite / CI) clone without the private config.json;
@@ -53,6 +60,11 @@ EMERGENT_FILE = ROOT / "architecture" / "emergent-nodes.md"
 ACTIONS_DIR = ROOT / "actions"
 LOG_FILE = ROOT / "logs" / "watcher.log"
 LOCK_FILE = ROOT / "data" / ".poll.lock"
+NETFAIL_FILE = ROOT / "data" / ".netfail"
+
+# HTTP statuses worth a retry; anything else (401 bad token, 400 bad query) is
+# a real fault the caller should see immediately.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
 def log(msg):
@@ -63,12 +75,28 @@ def log(msg):
     print(msg)
 
 
-def search(params):
+def search(params, attempts=3, backoff=5):
+    """GET /api/search, riding out transient network faults.
+
+    A laptop that sleeps, drops wifi, or hits an api hiccup produced the bulk of
+    this watcher's failures (DNS, connection reset, ssl eof, read timeout — all
+    OSError subclasses, as is urllib's URLError). Retry those a couple of times
+    within one launchd interval; let genuine faults (401, 400) raise at once.
+    """
     url = f"{API}/search?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(
         url, headers={"Authorization": f"Bearer {CONFIG['api_token']}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code not in RETRY_STATUSES or attempt == attempts - 1:
+                raise
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+        time.sleep(backoff * (2 ** attempt))
 
 
 def fetch_new(cursor):
@@ -97,7 +125,7 @@ def siblings_at(node, exclude_id, limit=6):
     """Compact context: recent annotations already mapped to the same node."""
     if not MAP_FILE.exists():
         return []
-    records = [json.loads(l) for l in MAP_FILE.open()]
+    records = [json.loads(line) for line in MAP_FILE.open()]
     sibs = [r for r in records if r["node"] == node and r["id"] != exclude_id]
     sibs.sort(key=lambda r: r.get("created", ""), reverse=True)
     return [{
@@ -181,7 +209,7 @@ def call_sonnet(prompt, attempts=2):
 def upsert_map(record):
     records = []
     if MAP_FILE.exists():
-        records = [json.loads(l) for l in MAP_FILE.open()]
+        records = [json.loads(line) for line in MAP_FILE.open()]
     records = [r for r in records if r["id"] != record["id"]] + [record]
     with MAP_FILE.open("w") as f:
         for r in records:
@@ -221,6 +249,24 @@ def note_emergent(node, role, ann):
         EMERGENT_FILE.write_text("# Emergent nodes proposed by Sonnet (review, then fold into ia.md)\n\n")
     with EMERGENT_FILE.open("a") as f:
         f.write(f"- `{node}` — {role} (from {ann.get('links', {}).get('incontext', ann['id'])})\n")
+
+
+def note_network_failure(msg):
+    """Log an outage once, not once per five-minute poll.
+
+    A wifi drop otherwise writes the same line 288 times a day into the log the
+    health review reads. Remember the last message; only log when it changes.
+    """
+    if not NETFAIL_FILE.exists() or NETFAIL_FILE.read_text() != msg:
+        log(msg)
+        NETFAIL_FILE.parent.mkdir(parents=True, exist_ok=True)
+        NETFAIL_FILE.write_text(msg)
+
+
+def clear_network_failure():
+    if NETFAIL_FILE.exists():
+        NETFAIL_FILE.unlink()
+        log("hypothesis api reachable again")
 
 
 def process(ann, dry_run=False):
@@ -282,7 +328,16 @@ def main():
         if CURSOR_FILE.exists() else CONFIG.get("since")
     seen = json.loads(SEEN_FILE.read_text()) if SEEN_FILE.exists() else {}
 
-    anns = fetch_new(cursor)
+    try:
+        anns = fetch_new(cursor)
+    except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
+        note_network_failure(f"hypothesis api returned {e.code} {e.reason}; retrying next run")
+        return
+    except OSError as e:
+        note_network_failure(f"hypothesis api unreachable ({e}); retrying next run")
+        return
+    clear_network_failure()
+
     fresh = [a for a in anns if seen.get(a["id"]) != a["updated"]]
     if not fresh:
         return
@@ -294,7 +349,7 @@ def main():
             SEEN_FILE.write_text(json.dumps(seen))
             CURSOR_FILE.write_text(json.dumps({"search_after": ann["updated"]}))
     if not dry_run and MAP_FILE.exists():
-        write_overview([json.loads(l) for l in MAP_FILE.open()])
+        write_overview([json.loads(line) for line in MAP_FILE.open()])
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ import poll  # noqa: E402
 # module-level path attributes on `poll` that any test run may write to
 _WRITE_PATHS = (
     "LOG_FILE", "MAP_FILE", "SEEN_FILE", "CURSOR_FILE",
-    "ACTIONS_DIR", "EMERGENT_FILE", "LOCK_FILE",
+    "ACTIONS_DIR", "EMERGENT_FILE", "LOCK_FILE", "NETFAIL_FILE",
 )
 
 
