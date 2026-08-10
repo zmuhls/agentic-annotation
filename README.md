@@ -80,15 +80,34 @@ python3 scripts/fetch_annotations.py && python3 scripts/build_ia.py
 Editing `architecture/ia.md` immediately changes how Sonnet classifies —
 it is included in every classification prompt.
 
-## Tests
+## Tests and lint
 
 The suite mocks the Hypothesis API and the `claude` subprocess, so it never
 spends API money, and `conftest.py` redirects every write path to a tmp dir so
-runs never touch `logs/`, `data/`, or `actions/`. `pytest` is a dev-only
-dependency (no runtime deps beyond the stdlib):
+runs never touch `logs/`, `data/`, or `actions/`. `pytest` and `ruff` are
+dev-only dependencies (no runtime deps beyond the stdlib):
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
-pip install pytest
+pip install pytest ruff
 pytest
+ruff check .
 ```
+
+GitHub Actions runs both on every push and pull request
+(`.github/workflows/ci.yml`, Python 3.11 and 3.12). CI has no `config.json`;
+`poll.py` falls back to `config.example.json` so the import still resolves.
+
+## Network faults
+
+Polling rides out transient failures — DNS loss on a sleeping laptop, connection
+resets, SSL EOF, read timeouts, and `429`/`5xx` from the API — with three
+attempts and exponential backoff inside one five-minute interval. If they all
+fail, the run logs a single line and exits cleanly rather than raising; the
+message is written once per outage, not once per poll, and a recovery line
+follows when the API answers again. Real faults (`401` bad token, `400` bad
+query) raise immediately instead of being retried.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

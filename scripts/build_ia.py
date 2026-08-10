@@ -190,7 +190,7 @@ def write_overview(records):
 
 
 def main():
-    rows = [json.loads(l) for l in (ROOT / "data" / "annotations.jsonl").open()]
+    rows = [json.loads(line) for line in (ROOT / "data" / "annotations.jsonl").open()]
     records = [record_for(r) for r in rows]
     out = ROOT / "architecture" / "map.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)

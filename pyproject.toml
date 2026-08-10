@@ -4,3 +4,13 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# E501 is off by design: the Sonnet classification prompt in poll.py is prose
+# inside an f-string, and wrapping those lines would change what the model reads.
+ignore = ["E501"]

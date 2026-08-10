@@ -11,7 +11,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from build_ia import (  # noqa: E402
-    actions_for, node_for, quote_of, record_for, title_of, workflow_for,
+    actions_for,
+    node_for,
+    quote_of,
+    record_for,
+    title_of,
+    workflow_for,
 )
 
 

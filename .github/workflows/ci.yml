@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # dev-only tooling; the watcher itself has no runtime dependencies
+      - run: pip install pytest ruff
+      - run: ruff check .
+      # the suite mocks the Hypothesis API and the claude CLI — CI spends no API money,
+      # and poll.py reads config.example.json when the private config.json is absent
+      - run: pytest
