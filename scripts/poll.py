@@ -27,9 +27,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from appconfig import load_config  # noqa: E402
 from build_ia import (  # noqa: E402
-    GROUP_NAMES,
     actions_for,
+    group_name_for,
     node_for,
     quote_of,
     record_for,
@@ -37,20 +38,13 @@ from build_ia import (  # noqa: E402
     write_overview,
 )
 
-
-def load_config():
-    # Adopters (and the test suite / CI) clone without the private config.json;
-    # fall back to the committed example so imports never hard-fail on setup.
-    for name in ("config.json", "config.example.json"):
-        path = ROOT / name
-        if path.exists():
-            return json.loads(path.read_text())
-    return {}
-
-
 CONFIG = load_config()
 API = "https://api.hypothes.is/api"
 MODEL = CONFIG.get("model", "claude-sonnet-5")
+# How the classifier prompt names whose knowledge system this is. Keeping the
+# owner in config rather than in the prompt string is what lets someone else
+# adopt the repo without editing code.
+OWNER = CONFIG.get("owner", "this Hypothesis knowledge system")
 
 CURSOR_FILE = ROOT / "data" / "cursor.json"
 SEEN_FILE = ROOT / "data" / "seen.json"
@@ -136,7 +130,7 @@ def siblings_at(node, exclude_id, limit=6):
 
 def classify_prompt(ann):
     ia = IA_FILE.read_text()
-    group = GROUP_NAMES.get(ann.get("group", ""), ann.get("group", ""))
+    group = group_name_for(ann)
     predicted = node_for(ann)
     payload = {
         "uri": ann.get("uri", ""),
@@ -149,7 +143,7 @@ def classify_prompt(ann):
         "is_reply": bool(ann.get("references")),
     }
     action_tags = actions_for(ann.get("tags", []))
-    return f"""You are the annotation librarian for Zach Muhlbauer's Hypothesis knowledge system. His information architecture is below, followed by one new annotation.
+    return f"""You are the annotation librarian for {OWNER}. The information architecture is below, followed by one new annotation.
 
 <information_architecture>
 {ia}
@@ -175,8 +169,38 @@ Respond with ONLY a JSON object (no markdown fences, no commentary):
 {{"node": "<node-id>", "new_node": false, "role": "<one sentence>", "actions": [{{"type": "<the action tag>", "artifact": "<uri>", "anchor": "<quoted passage or location>", "instructions": "<what to do>"}}]}}"""
 
 
+def cli_error_text(proc):
+    """Why the claude CLI failed.
+
+    It reports API and auth failures as a JSON envelope on *stdout* and leaves
+    stderr empty, so `proc.stderr` alone logs a bare "claude exited 1: " that
+    says nothing — which is exactly what the watcher log held for every past
+    failure. Prefer stderr when it has content, else dig the message out of the
+    envelope.
+    """
+    if (proc.stderr or "").strip():
+        return proc.stderr.strip()[:400]
+    try:
+        payload = json.loads(proc.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return (proc.stdout or "").strip()[:400] or "no output"
+    messages = payload if isinstance(payload, list) else [payload]
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and (msg.get("is_error") or msg.get("error")):
+            detail = msg.get("result") or msg.get("error")
+            if detail:
+                return str(detail)[:400]
+    return (proc.stdout or "").strip()[:400] or "no output"
+
+
+# A dead login does not heal in the 30s between attempts, and every retry burns
+# another poll interval — say so on the first failure instead.
+AUTH_MARKERS = ("authenticate", "oauth", "unauthorized", "invalid api key",
+                "please run /login")
+
+
 def call_sonnet(prompt, attempts=2):
-    proc = None
+    proc, detail = None, ""
     for attempt in range(attempts):
         proc = subprocess.run(
             [claude_bin(), "-p", "--model", MODEL, "--output-format", "json"],
@@ -184,10 +208,15 @@ def call_sonnet(prompt, attempts=2):
         )
         if proc.returncode == 0:
             break
+        detail = cli_error_text(proc)
+        if any(m in detail.lower() for m in AUTH_MARKERS):
+            raise RuntimeError(
+                f"claude cli is not authenticated ({detail}) — run `claude` "
+                "and sign in; classification is falling back to rules until then")
         if attempt < attempts - 1:
             time.sleep(30)  # transient API outages are common enough to ride out
     if proc.returncode != 0:
-        raise RuntimeError(f"claude exited {proc.returncode}: {proc.stderr[:400]}")
+        raise RuntimeError(f"claude exited {proc.returncode}: {detail}")
     try:
         wrapper = json.loads(proc.stdout)
     except json.JSONDecodeError:

@@ -1,6 +1,7 @@
 {
   "api_token": "YOUR-HYPOTHESIS-DEVELOPER-TOKEN",
   "user": "acct:username@hypothes.is",
+  "owner": "an annotator's Hypothesis knowledge system",
   "since": "2024-07-15T00:00:00.000000+00:00",
   "model": "claude-sonnet-5"
 }

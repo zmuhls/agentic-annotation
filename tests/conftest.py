@@ -15,6 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
+import build_ia  # noqa: E402
 import poll  # noqa: E402
 
 # module-level path attributes on `poll` that any test run may write to
@@ -29,3 +30,30 @@ def isolate_poll_paths(tmp_path, monkeypatch):
     for attr in _WRITE_PATHS:
         original = getattr(poll, attr)
         monkeypatch.setattr(poll, attr, tmp_path / original.name)
+
+
+# Fictional stand-ins for the real placement tables, which live in the
+# gitignored routing.json. Tests assert against these so the suite passes on a
+# fresh clone, keeps personal group ids out of this public repo, and does not
+# change meaning when the maintainer re-maps a group.
+_ROUTING = {
+    "GROUP_NAMES": {"__world__": "Public", "DISS01": "diss"},
+    "ARTIFACT_DOMAINS": {"mysite.example": "artifacts/personal-site"},
+    "GROUP_DOMAIN_OVERRIDES": [
+        {"group": "DISS01", "domain_contains": "forum.example",
+         "node": "dissertation/corpus"},
+    ],
+    "GROUP_NODES": {"DISS01": "dissertation/sources",
+                    "TEACH1": "teaching/writing-courses"},
+    "DOMAIN_CONTAINS": {"forum.example": "dissertation/corpus"},
+    "DOMAIN_NODES": {"papers.example": "reading/ai-ml"},
+    "GENERAL_GROUPS": frozenset({"__world__", "MISC01"}),
+    "GENERAL_NODE": "reading/general",
+    "DEFAULT_NODE": "inbox",
+}
+
+
+@pytest.fixture
+def routing(monkeypatch):
+    for name, value in _ROUTING.items():
+        monkeypatch.setattr(build_ia, name, value)

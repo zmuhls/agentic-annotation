@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "Rule-based placement tables for build_ia.py (and the rules fallback in poll.py).",
+    "Copy to routing.json and edit — routing.json is gitignored, since group ids and",
+    "the sites you annotate are personal. `python3 scripts/bootstrap_routing.py` will",
+    "draft one for you from your own Hypothesis groups.",
+    "",
+    "node_for() checks these in order, first match wins:",
+    "  1. artifact_domains        exact netloc -> node (things you wrote; beats group)",
+    "  2. group_domain_overrides  group + substring of netloc -> node",
+    "  3. group_nodes             group id -> node",
+    "  4. domain_contains         substring of netloc -> node",
+    "  5. domain_nodes            exact netloc -> node",
+    "  6. general_groups          group id -> general_node",
+    "  7. default_node",
+    "Nodes must be ids defined in architecture/ia.md. Anything unmatched lands in",
+    "default_node, where Sonnet still gets a say — the rules are only a prior."
+  ],
+
+  "group_names": {
+    "__world__": "Public",
+    "AbC1dEf2": "Seminar reading group",
+    "GhI3jKl4": "Dissertation"
+  },
+
+  "artifact_domains": {
+    "your-username.github.io": "artifacts/personal-site",
+    "localhost:4000": "artifacts/personal-site"
+  },
+
+  "group_domain_overrides": [
+    {"group": "GhI3jKl4", "domain_contains": "reddit.com", "node": "dissertation/corpus"}
+  ],
+
+  "group_nodes": {
+    "GhI3jKl4": "dissertation/sources",
+    "AbC1dEf2": "teaching/prep"
+  },
+
+  "domain_contains": {},
+
+  "domain_nodes": {
+    "arxiv.org": "reading/ai-ml"
+  },
+
+  "general_groups": ["__world__"],
+  "general_node": "reading/general",
+  "default_node": "inbox"
+}

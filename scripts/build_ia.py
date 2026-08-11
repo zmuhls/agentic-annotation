@@ -8,78 +8,28 @@ for the bulk backfill (safe to re-run — it rebuilds the map from scratch).
 """
 
 import json
+import sys
 import urllib.parse
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from appconfig import load_routing  # noqa: E402
 
-GROUP_NAMES = {
-    "__world__": "Public",
-    "R3qQqNk9": "2024-2025",
-    "myPev4rD": "AI FIG | TLC 2024-25",
-    "yKvGZkjg": "CSC10800 Annotation Group",
-    "eBmn355k": "diss",
-    "dWkEjnGy": "ENG 2100: Writing 1 (F23)",
-    "6LxnJJoz": "ENG 2100: Writing 1 (S24)",
-    "7AD9jqLR": "ENG2100: Writing 1 F20",
-    "64Kvk7bx": "ENG2100: Writing 1 F21",
-    "M4X9eV2X": "ENG2100: Writing 1 F22",
-    "qqqKZmym": "ENG2150: Writing 2 S21",
-    "vB9XvzV8": "ENG2150: Writing 2 S22",
-    "D8yNabbj": "ENG2150: Writing 2 S23",
-    "AK4RLLXQ": "ITP Core II",
-    "r752WLJM": "JS Project",
-    "wqjpVkmN": "Lesson Prep",
-    "NyoW4wez": "Mandarin",
-    "RQDYBPax": "N.B.",
-    "9pzJABEb": "NYS Common Schools",
-    "yxgzy8Br": "Programming",
-    "3wR2dMiq": "T&L edits",
-    "N2E9Mr3o": "TLC Social Reading Group",
-    "vdyirjMa": "Toolkit Annotations",
-    "EGMRqLQa": "zm-itp-is",
-}
-
-ARTIFACT_DOMAINS = {
-    "zmuhls.github.io": "artifacts/personal-site",
-    "localhost:4000": "artifacts/personal-site",
-    "127.0.0.1:4000": "artifacts/personal-site",
-    "cuny-ai-lab.github.io": "artifacts/cuny-ai-lab",
-    "bot.inference-arcade.com": "artifacts/inference-arcade",
-}
-
-GROUP_NODES = {
-    "eBmn355k": "dissertation/sources",
-    "myPev4rD": "ai-pedagogy/fig",
-    "vdyirjMa": "ai-pedagogy/toolkit",
-    "N2E9Mr3o": "ai-pedagogy/fig",
-    "yKvGZkjg": "teaching/csc10800",
-    "dWkEjnGy": "teaching/writing-courses",
-    "6LxnJJoz": "teaching/writing-courses",
-    "7AD9jqLR": "teaching/writing-courses",
-    "64Kvk7bx": "teaching/writing-courses",
-    "M4X9eV2X": "teaching/writing-courses",
-    "qqqKZmym": "teaching/writing-courses",
-    "vB9XvzV8": "teaching/writing-courses",
-    "D8yNabbj": "teaching/writing-courses",
-    "wqjpVkmN": "teaching/prep",
-    "AK4RLLXQ": "teaching/prep",
-    "R3qQqNk9": "teaching/prep",
-    "3wR2dMiq": "artifacts/other",
-    "EGMRqLQa": "artifacts/other",
-}
-
-DH_DOMAINS = {
-    "melaniewalsh.github.io", "tedunderwood.com", "crdh.rrchnm.org",
-    "quod.lib.umich.edu", "data-feminism.mitpress.mit.edu",
-    "abolition.university", "library.oapen.org", "dhdebates.gc.cuny.edu",
-}
-AIML_DOMAINS = {
-    "arxiv.org", "www.anthropic.com", "openai.com", "huggingface.co",
-    "www-nature-com.ezproxy.gc.cuny.edu", "www.nature.com",
-    "criticaledtech.com",
-}
+# Placement tables live in routing.json (gitignored — group ids and the sites
+# you annotate are personal), with routing.example.json as the documented
+# fallback so a fresh clone still imports. See node_for() for precedence.
+ROUTING = load_routing()
+GROUP_NAMES = ROUTING.get("group_names", {})
+ARTIFACT_DOMAINS = ROUTING.get("artifact_domains", {})
+GROUP_DOMAIN_OVERRIDES = ROUTING.get("group_domain_overrides", [])
+GROUP_NODES = ROUTING.get("group_nodes", {})
+DOMAIN_CONTAINS = ROUTING.get("domain_contains", {})
+DOMAIN_NODES = ROUTING.get("domain_nodes", {})
+GENERAL_GROUPS = frozenset(ROUTING.get("general_groups", ()))
+GENERAL_NODE = ROUTING.get("general_node", "reading/general")
+DEFAULT_NODE = ROUTING.get("default_node", "inbox")
 
 ACTION_TAGS = (
     # prose & argument
@@ -106,25 +56,36 @@ def actions_for(tags):
     return [a for a in ACTION_TAGS if a in lower]
 
 
+def group_name_for(ann):
+    group = ann.get("group", "")
+    return GROUP_NAMES.get(group, group)
+
+
 def node_for(ann):
+    """Rule-based prior for an annotation's node; Sonnet may override it.
+
+    First match wins, table by table (see routing.example.json for the schema).
+    """
     domain = urllib.parse.urlparse(ann.get("uri", "")).netloc
     group = ann.get("group", "__world__")
     # Own artifacts win regardless of group: those are editorial notes-to-self.
     if domain in ARTIFACT_DOMAINS:
         return ARTIFACT_DOMAINS[domain]
-    if group == "eBmn355k" and "reddit.com" in domain:
-        return "dissertation/corpus"
+    # A group whose node depends on where the annotation lives (e.g. corpus
+    # material read on one site vs. secondary sources read anywhere else).
+    for rule in GROUP_DOMAIN_OVERRIDES:
+        if rule.get("group") == group and rule.get("domain_contains", "") in domain:
+            return rule["node"]
     if group in GROUP_NODES:
         return GROUP_NODES[group]
-    if "reddit.com" in domain:
-        return "dissertation/corpus"
-    if domain in DH_DOMAINS:
-        return "reading/digital-humanities"
-    if domain in AIML_DOMAINS:
-        return "reading/ai-ml"
-    if group in ("__world__", "RQDYBPax", "9pzJABEb", "yxgzy8Br", "NyoW4wez", "r752WLJM"):
-        return "reading/general"
-    return "inbox"
+    for fragment, node in DOMAIN_CONTAINS.items():
+        if fragment in domain:
+            return node
+    if domain in DOMAIN_NODES:
+        return DOMAIN_NODES[domain]
+    if group in GENERAL_GROUPS:
+        return GENERAL_NODE
+    return DEFAULT_NODE
 
 
 def title_of(ann):
@@ -156,7 +117,7 @@ def record_for(ann):
         "created": ann.get("created", ""),
         "updated": ann.get("updated", ""),
         "tags": ann.get("tags", []),
-        "group": GROUP_NAMES.get(ann.get("group", ""), ann.get("group", "")),
+        "group": group_name_for(ann),
         "quote": quote_of(ann)[:300],
         "note": (ann.get("text") or "")[:500],
         "link": ann.get("links", {}).get("incontext", ""),

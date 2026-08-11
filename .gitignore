@@ -1,6 +1,9 @@
 # secrets — never commit
 config.json
 
+# personal placement tables (group ids, sites you annotate)
+routing.json
+
 # annotation content (includes private Hypothesis groups) and watcher state
 data/
 actions/

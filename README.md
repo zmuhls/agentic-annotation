@@ -1,6 +1,6 @@
 # Hypothesis Annotation System
 
-Pulls every Hypothesis annotation by `zachmuhlbauer`, sorts it into an
+Pulls every Hypothesis annotation by a given account, sorts it into an
 information architecture, and watches for new annotations — each new or
 edited annotation is classified into the architecture by **Claude Sonnet 5**,
 and annotations tagged `revision`, `expansion`, or `condense` generate
@@ -29,7 +29,9 @@ Because the cursor tracks `updated` (not `created`), **adding a tag like
 
 | Path | Purpose |
 |---|---|
-| `config.json` | API token, user, model, backfill start date (chmod 600) |
+| `config.json` | API token, user, owner label, model, backfill start date (chmod 600) |
+| `routing.json` | Your placement tables — group ids, own-artifact domains (gitignored) |
+| `routing.example.json` | Documented schema and precedence for the above |
 | `data/annotations.jsonl` | Raw two-year pull (2024-07-15 →) |
 | `data/cursor.json`, `data/seen.json` | Watcher state |
 | `architecture/ia.md` | The taxonomy — hand-editable; Sonnet reads it on every classification |
@@ -37,10 +39,31 @@ Because the cursor tracks `updated` (not `created`), **adding a tag like
 | `architecture/overview.md` | Generated per-node counts |
 | `architecture/emergent-nodes.md` | Sub-nodes Sonnet proposed; review and fold into ia.md |
 | `actions/` | Generated instruction files for tagged editorial directives |
+| `scripts/appconfig.py` | Loads `config.json` / `routing.json` with `.example` fallbacks |
+| `scripts/bootstrap_routing.py` | Drafts a `routing.json` from your own Hypothesis groups |
 | `scripts/fetch_annotations.py` | Full re-pull (backfill) |
 | `scripts/build_ia.py` | Rule-based initial sort of the backfill |
 | `scripts/poll.py` | The watcher + Sonnet 5 classifier |
 | `launchd/…watcher.plist` | Runs poll.py every 5 min (installed in ~/Library/LaunchAgents) |
+
+## Adopting it for your own annotations
+
+Nothing personal is compiled into the code. Two gitignored files hold everything
+that differs between people:
+
+```sh
+cp config.example.json config.json && chmod 600 config.json
+# fill in api_token (hypothes.is → Developer), user (acct:you@hypothes.is), owner
+
+python3 scripts/bootstrap_routing.py --write   # asks /api/profile/groups for your groups
+```
+
+`bootstrap_routing.py` writes a `routing.json` naming every group you belong to
+and pointing each at `inbox`; edit those to node ids from `architecture/ia.md`,
+and add the domains you annotate. `routing.example.json` documents the whole
+schema, including the order the tables are consulted in. Skip the file entirely
+and everything lands in `inbox` — the rules are only a prior, and Sonnet still
+places each annotation against `ia.md`.
 
 ## Driving the system from Hypothesis
 
@@ -95,8 +118,19 @@ ruff check .
 ```
 
 GitHub Actions runs both on every push and pull request
-(`.github/workflows/ci.yml`, Python 3.11 and 3.12). CI has no `config.json`;
-`poll.py` falls back to `config.example.json` so the import still resolves.
+(`.github/workflows/ci.yml`, Python 3.11 and 3.12). CI has neither
+`config.json` nor `routing.json`; both fall back to their committed `.example`
+so imports still resolve, and the routing tests supply fictional tables of their
+own rather than asserting against anyone's real groups.
+
+## When classification stops working
+
+Sonnet failures are non-fatal — the annotation still gets placed by the rules
+and the record is marked `rules-fallback`. The watcher log names the cause. The
+most common one is an expired login on the `claude` CLI, reported as
+`claude cli is not authenticated (…)`; fix it by running `claude` and signing in
+again. Auth failures are not retried, since a dead login will not heal between
+attempts.
 
 ## Network faults
 

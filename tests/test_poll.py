@@ -54,7 +54,40 @@ class TestCallSonnet:
         monkeypatch.setattr(poll.subprocess, "run",
                             lambda *a, **k: FakeProc(returncode=1, stderr="boom"))
         monkeypatch.setattr(poll.time, "sleep", lambda *a: None)  # no real wait
-        with pytest.raises(RuntimeError, match="claude exited 1"):
+        with pytest.raises(RuntimeError, match="claude exited 1: boom"):
+            poll.call_sonnet("prompt", attempts=1)
+
+    def test_reports_the_stdout_envelope_when_stderr_is_empty(self, monkeypatch):
+        # the CLI's real failure shape: exit 1, empty stderr, reason in stdout
+        envelope = json.dumps([{"type": "result", "is_error": True,
+                                "result": "Overloaded"}])
+        monkeypatch.setattr(poll.subprocess, "run",
+                            lambda *a, **k: FakeProc(returncode=1, stdout=envelope))
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
+        with pytest.raises(RuntimeError, match="Overloaded"):
+            poll.call_sonnet("prompt", attempts=1)
+
+    def test_auth_failure_fails_fast_without_retrying(self, monkeypatch):
+        envelope = json.dumps({"type": "result", "is_error": True,
+                               "result": "Failed to authenticate: OAuth session expired"})
+        calls = []
+
+        def run(*a, **k):
+            calls.append(1)
+            return FakeProc(returncode=1, stdout=envelope)
+
+        monkeypatch.setattr(poll.subprocess, "run", run)
+        monkeypatch.setattr(poll.time, "sleep",
+                            lambda *a: pytest.fail("must not sleep on an auth failure"))
+        with pytest.raises(RuntimeError, match="not authenticated"):
+            poll.call_sonnet("prompt", attempts=3)
+        assert len(calls) == 1
+
+    def test_error_text_without_any_output(self, monkeypatch):
+        monkeypatch.setattr(poll.subprocess, "run",
+                            lambda *a, **k: FakeProc(returncode=1))
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
+        with pytest.raises(RuntimeError, match="no output"):
             poll.call_sonnet("prompt", attempts=1)
 
     def test_raises_when_no_json(self, monkeypatch):
@@ -64,10 +97,11 @@ class TestCallSonnet:
             poll.call_sonnet("prompt")
 
 
+@pytest.mark.usefixtures("routing")
 class TestProcess:
     def _ann(self, **over):
         base = {
-            "id": "test1", "uri": "https://zmuhls.github.io/x",
+            "id": "test1", "uri": "https://mysite.example/x",
             "document": {"title": ["T"]}, "tags": ["revision"],
             "target": [{"selector": [
                 {"type": "TextQuoteSelector", "exact": "quoted bit"}]}],
