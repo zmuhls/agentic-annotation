@@ -224,3 +224,35 @@ class TestLoadConfig:
     def test_returns_dict(self):
         # config.json or config.example.json is present in-repo
         assert isinstance(poll.load_config(), dict)
+
+
+class TestTrimLog:
+    def test_leaves_a_small_log_alone(self, tmp_path):
+        path = tmp_path / "small.log"
+        path.write_text("line one\nline two\n")
+        assert poll.trim_log(path, max_bytes=1000, keep_bytes=100) is False
+        assert path.read_text() == "line one\nline two\n"
+
+    def test_keeps_the_tail_and_drops_the_partial_line(self, tmp_path):
+        path = tmp_path / "big.log"
+        path.write_text("".join(f"entry {i:05d}\n" for i in range(2000)))
+        assert poll.trim_log(path, max_bytes=1000, keep_bytes=500) is True
+
+        text = path.read_text()
+        assert path.stat().st_size < 1000
+        assert "entry 01999" in text            # newest entries survive
+        assert "entry 00000" not in text        # oldest are gone
+        assert "trimmed" in text.splitlines()[0]
+        body = text.split("\n", 1)[1]
+        assert all(line.startswith("entry ") for line in body.splitlines())
+
+    def test_rewrites_the_same_inode(self, tmp_path):
+        """The scheduler holds an append fd on launchd.log; renaming would orphan it."""
+        path = tmp_path / "inode.log"
+        path.write_text("".join(f"entry {i:05d}\n" for i in range(2000)))
+        before = path.stat().st_ino
+        poll.trim_log(path, max_bytes=1000, keep_bytes=500)
+        assert path.stat().st_ino == before
+
+    def test_missing_log_is_not_an_error(self, tmp_path):
+        assert poll.trim_log(tmp_path / "nope.log") is False

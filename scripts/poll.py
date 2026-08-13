@@ -8,7 +8,8 @@ which places it in the information architecture (architecture/ia.md) and,
 when the annotation carries a revision / expansion / condense tag, writes
 concrete instructions for the target artifact into actions/.
 
-Run by launchd every 5 minutes (see launchd/com.zachmuhlbauer.hypothesis-watcher.plist).
+Run every 5 minutes by the scheduler unit that scripts/install_agent.py writes
+(launchd on macOS, a systemd user timer on Linux).
 Manual run: python3 scripts/poll.py [--dry-run]
 """
 
@@ -53,8 +54,15 @@ IA_FILE = ROOT / "architecture" / "ia.md"
 EMERGENT_FILE = ROOT / "architecture" / "emergent-nodes.md"
 ACTIONS_DIR = ROOT / "actions"
 LOG_FILE = ROOT / "logs" / "watcher.log"
+STDOUT_LOG = ROOT / "logs" / "launchd.log"
 LOCK_FILE = ROOT / "data" / ".poll.lock"
 NETFAIL_FILE = ROOT / "data" / ".netfail"
+
+# Nothing ever pruned the logs: 288 runs a day append forever, and one bad week
+# of tracebacks had already put launchd.log past 200 KB of text no one will read
+# again. Keep a working tail rather than the whole history.
+LOG_MAX_BYTES = 1_000_000
+LOG_KEEP_BYTES = 250_000
 
 # HTTP statuses worth a retry; anything else (401 bad token, 400 bad query) is
 # a real fault the caller should see immediately.
@@ -67,6 +75,30 @@ def log(msg):
     with LOG_FILE.open("a") as f:
         f.write(f"[{stamp}] {msg}\n")
     print(msg)
+
+
+def trim_log(path, max_bytes=LOG_MAX_BYTES, keep_bytes=LOG_KEEP_BYTES):
+    """Shrink an oversized log in place, keeping its last whole lines.
+
+    In place, not renamed: the scheduler redirects this process's stdout into
+    launchd.log with an append-mode descriptor it owns, and renaming the file
+    would leave that descriptor writing to an inode nobody reads. Rewriting the
+    same inode just moves EOF back — the next append lands after the tail.
+    """
+    try:
+        if not path.exists() or path.stat().st_size <= max_bytes:
+            return False
+        with path.open("rb") as f:
+            f.seek(-keep_bytes, 2)
+            tail = f.read()
+    except OSError:
+        return False  # a log we cannot prune is not worth failing a poll over
+    tail = tail.split(b"\n", 1)[-1]  # drop the partial first line
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    header = f"[{stamp}] --- earlier entries trimmed (log exceeded {max_bytes} bytes) ---\n"
+    with path.open("wb") as f:
+        f.write(header.encode() + tail)
+    return True
 
 
 def search(params, attempts=3, backoff=5):
@@ -352,6 +384,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         return  # previous run still going
+
+    for path in (LOG_FILE, STDOUT_LOG):
+        trim_log(path)
 
     cursor = json.loads(CURSOR_FILE.read_text())["search_after"] \
         if CURSOR_FILE.exists() else CONFIG.get("since")

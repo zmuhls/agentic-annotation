@@ -44,9 +44,12 @@ Because the cursor tracks `updated` (not `created`), **adding a tag like
 | `scripts/fetch_annotations.py` | Full re-pull (backfill) |
 | `scripts/build_ia.py` | Rule-based initial sort of the backfill |
 | `scripts/poll.py` | The watcher + Sonnet 5 classifier |
-| `launchd/…watcher.plist` | Runs poll.py every 5 min (installed in ~/Library/LaunchAgents) |
+| `scripts/install_agent.py` | Generates the scheduler unit (launchd / systemd / cron) |
 
 ## Adopting it for your own annotations
+
+**[INSTALL.md](INSTALL.md) is the full path** — requirements, config, backfill,
+scheduling on macOS/Linux, and troubleshooting. The short version:
 
 Nothing personal is compiled into the code. Two gitignored files hold everything
 that differs between people:
@@ -92,9 +95,10 @@ tail -f logs/watcher.log
 python3 scripts/poll.py
 python3 scripts/poll.py --dry-run
 
-# pause / resume the watcher
-launchctl unload ~/Library/LaunchAgents/com.zachmuhlbauer.hypothesis-watcher.plist
-launchctl load   ~/Library/LaunchAgents/com.zachmuhlbauer.hypothesis-watcher.plist
+# install / pause / resume the watcher (see INSTALL.md for systemd and cron)
+python3 scripts/install_agent.py --write
+launchctl unload ~/Library/LaunchAgents/local.hypothesis-watcher.plist
+launchctl load   ~/Library/LaunchAgents/local.hypothesis-watcher.plist
 
 # full re-backfill + re-sort (rebuilds map from rules; Sonnet judgments are overwritten)
 python3 scripts/fetch_annotations.py && python3 scripts/build_ia.py
@@ -102,6 +106,11 @@ python3 scripts/fetch_annotations.py && python3 scripts/build_ia.py
 
 Editing `architecture/ia.md` immediately changes how Sonnet classifies —
 it is included in every classification prompt.
+
+Both logs are self-limiting: a poll that finds either past 1 MB rewrites it in
+place, keeping the last ~250 KB behind a `--- earlier entries trimmed ---`
+marker. Nothing external rotates them, and 288 runs a day would otherwise grow
+them without bound.
 
 ## Tests and lint
 
