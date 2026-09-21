@@ -12,9 +12,12 @@
 
 **Verify:** `py_compile` clean, ruff clean, **93/93 tests pass** (29 new, covering unit discovery, a missing interpreter, heartbeat staleness/status/fallbacks, and the install preflight). Live `poll.py` exits 0; `doctor.py` reports four `ok` lines. The forced dry-run restored `data/cursor.json` and `data/seen.json` byte-identical (md5-checked). Also: `.DS_Store` added to `.gitignore`.
 
+**Push is blocked — a human is needed.** `git push` fails before it reaches GitHub: the credential helper in `~/.gitconfig` is `!/usr/local/bin/gh auth git-credential`, and that binary is gone (the same class of breakage as the anaconda interpreter — the only `gh` left on PATH is an unrelated pip package). Both of today's commits are on local `main` and will go up as soon as someone reinstalls the GitHub CLI (`brew install gh && gh auth login`) or repoints the helper.
+
 **Dependencies:** none added. Runtime is still stdlib-only.
 
 **Next candidates (agenda):**
+- **ACTION:** reinstall/repoint the `gh` credential helper so pushes work again; today's commits are waiting locally.
 - ADOPTERS: a script that drafts a starter `ia.md` from the adopter's own annotation profile.
 - PRO-GRADE: CHANGELOG.md; `pyproject` console entry points (`hypothesis-watch`, `hypothesis-doctor`); type hints on `poll.py`.
 - ROBUSTNESS: per-classification cost visibility (~$0.10 each) in the log, from the CLI's usage envelope; batch handling when many annotations arrive at once (currently one CLI call each, serially).
