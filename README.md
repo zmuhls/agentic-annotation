@@ -45,6 +45,8 @@ Because the cursor tracks `updated` (not `created`), **adding a tag like
 | `scripts/build_ia.py` | Rule-based initial sort of the backfill |
 | `scripts/poll.py` | The watcher + Sonnet 5 classifier |
 | `scripts/install_agent.py` | Generates the scheduler unit (launchd / systemd / cron) |
+| `scripts/doctor.py` | Health check: is the watcher scheduled, alive, and classifying? |
+| `data/health.json` | Heartbeat written by every completed poll (gitignored) |
 
 ## Adopting it for your own annotations
 
@@ -88,6 +90,9 @@ Untagged annotations are still classified into the IA with a one-sentence
 ## Operations
 
 ```sh
+# is the watcher actually running?
+python3 scripts/doctor.py
+
 # watch it work
 tail -f logs/watcher.log
 
@@ -131,6 +136,30 @@ GitHub Actions runs both on every push and pull request
 `config.json` nor `routing.json`; both fall back to their committed `.example`
 so imports still resolve, and the routing tests supply fictional tables of their
 own rather than asserting against anyone's real groups.
+
+## Checking that the watcher is alive
+
+An empty `watcher.log` is ambiguous: a quiet week and a watcher that never
+starts look identical, because a job the scheduler cannot spawn writes nothing
+at all. `scripts/doctor.py` checks the things whose absence is otherwise
+invisible and exits non-zero if any of them is broken:
+
+- the config keys `poll.py` needs (the token is never printed) and the `claude` binary
+- a launchd/systemd unit for *this* checkout whose interpreter still exists —
+  the one failure that kills the watcher silently, since launchd answers
+  `last exit code = 78: EX_CONFIG`, runs nothing, and logs nothing
+- the heartbeat: every completed poll stamps `data/health.json`, so a timestamp
+  older than three intervals means no poll is happening. The same file records
+  how many annotations took the rules fallback on the last run, which is how a
+  live-but-degraded classifier shows up.
+
+```sh
+python3 scripts/doctor.py
+ok   config: watching acct:you@hypothes.is
+ok   claude cli: /usr/local/bin/claude
+ok   scheduler: local.hypothesis-watcher.plist runs /usr/bin/python3
+ok   heartbeat: last poll 3 min ago, 0 processed
+```
 
 ## When classification stops working
 

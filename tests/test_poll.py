@@ -256,3 +256,69 @@ class TestTrimLog:
 
     def test_missing_log_is_not_an_error(self, tmp_path):
         assert poll.trim_log(tmp_path / "nope.log") is False
+
+
+class TestHeartbeat:
+    """Every completed poll leaves a timestamp behind.
+
+    Without one, a watcher that never starts (a scheduler unit naming a deleted
+    interpreter) is indistinguishable from a quiet week: both write nothing.
+    """
+
+    def _health(self):
+        return json.loads(poll.HEALTH_FILE.read_text())
+
+    def test_clean_run_with_nothing_new_still_stamps(self, monkeypatch):
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: [])
+        poll.main()
+        health = self._health()
+        assert health["status"] == "ok"
+        assert health["processed"] == 0
+        assert health["last_run"].startswith("20")
+
+    def test_records_an_unreachable_api(self, monkeypatch):
+        def boom(cursor):
+            raise OSError("dns went away")
+        monkeypatch.setattr(poll, "fetch_new", boom)
+        poll.main()
+        health = self._health()
+        assert health["status"] == "api-unreachable"
+        assert "dns went away" in health["detail"]
+
+    def test_records_an_api_error_status(self, monkeypatch):
+        def boom(cursor):
+            raise poll.urllib.error.HTTPError(
+                "http://x", 401, "Unauthorized", {}, None)
+        monkeypatch.setattr(poll, "fetch_new", boom)
+        poll.main()
+        assert self._health()["status"] == "api-error"
+
+    def test_counts_annotations_that_took_the_rules_fallback(self, monkeypatch):
+        rows = [{"id": "a1", "updated": "2026-09-20T00:00:00+00:00"},
+                {"id": "a2", "updated": "2026-09-20T00:01:00+00:00"}]
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: {
+            "id": ann["id"],
+            "classified_by": "rules-fallback" if ann["id"] == "a2" else poll.MODEL,
+        })
+        poll.main()
+        health = self._health()
+        assert health["processed"] == 2
+        assert health["fallbacks"] == 1
+
+    def test_dry_run_leaves_no_heartbeat(self, monkeypatch):
+        monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: [])
+        poll.main()
+        assert not poll.HEALTH_FILE.exists()
+
+    def test_a_poll_that_could_not_take_the_lock_does_not_stamp(self, monkeypatch):
+        monkeypatch.setattr(poll, "fetch_new",
+                            lambda cursor: pytest.fail("must not poll"))
+        held = poll.LOCK_FILE.open("w")
+        poll.fcntl.flock(held, poll.fcntl.LOCK_EX | poll.fcntl.LOCK_NB)
+        try:
+            poll.main()
+        finally:
+            held.close()
+        assert not poll.HEALTH_FILE.exists()

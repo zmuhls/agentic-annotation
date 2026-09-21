@@ -81,6 +81,25 @@ def cron_line(python, interval):
             f">> {ROOT / 'logs' / 'launchd.log'} 2>&1\n")
 
 
+def check_interpreter(python, writing, allow_missing):
+    """Refuse to install a unit whose interpreter is not on this machine.
+
+    An absent interpreter is not an error the scheduler reports anywhere useful:
+    launchd records `last exit code = 78: EX_CONFIG`, runs nothing, and writes
+    no log line, so the watcher looks idle rather than broken. Rendering a unit
+    for a different machine is legitimate, though, so printing only warns.
+    """
+    if Path(python).exists():
+        return
+    message = f"{python} does not exist"
+    if writing and not allow_missing:
+        raise SystemExit(
+            f"{message} — the scheduler would fail to start the watcher. Pass a "
+            "present interpreter, or --allow-missing-python if you are "
+            "generating this unit for another machine.")
+    print(f"warning: {message}", file=sys.stderr)
+
+
 def default_target():
     return {"darwin": "launchd", "linux": "systemd"}.get(sys.platform, "cron")
 
@@ -106,9 +125,13 @@ def main(argv=None):
                     help="seconds between polls (default 300)")
     ap.add_argument("--write", action="store_true", help="install, don't just print")
     ap.add_argument("--force", action="store_true", help="overwrite an existing unit")
+    ap.add_argument("--allow-missing-python", action="store_true",
+                    help="install even if --python is not on this machine "
+                         "(for units generated for another host)")
     args = ap.parse_args(argv)
 
     label, python, interval = args.label, args.python, args.interval
+    check_interpreter(python, args.write, args.allow_missing_python)
 
     if args.target == "launchd":
         text = launchd_plist(label, python, interval)

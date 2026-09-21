@@ -110,11 +110,25 @@ found.
 Useful flags for all three: `--interval <seconds>` (default 300), `--label
 <name>`, `--python <interpreter>`, `--force` to overwrite an installed unit.
 
+Pick an interpreter that will still be there next month. The unit records an
+absolute path, and `--write` refuses one that does not exist today, because a
+scheduler cannot report a program it cannot spawn: launchd just records
+`last exit code = 78: EX_CONFIG` and writes nothing to the log. A system
+`python3` outlives a toolchain you might uninstall. (`--allow-missing-python`
+exists only for generating a unit meant for another machine.)
+
 ## 6. Confirm it is running
 
 ```sh
+python3 scripts/doctor.py     # config, claude cli, scheduler unit, heartbeat
 tail -f logs/watcher.log
 ```
+
+`doctor.py` exits non-zero when something is broken, so it also works as a
+periodic check of its own. It is the fastest way to tell a quiet week from a
+dead watcher: every completed poll stamps `data/health.json`, and a heartbeat
+older than three intervals means no poll is happening — which an empty log
+cannot tell you.
 
 Annotate something, tag it `revision`, and within about five minutes you should
 see the annotation placed and an instruction file appear under `actions/`. Both
@@ -128,5 +142,6 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 | Everything lands in `inbox` | `routing.json` is missing or its nodes are still the bootstrap defaults. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
 | `401` from the API | Bad or revoked token in `config.json`. Not retried, by design. |
-| No log entries at all | The unit is not loaded. Check `launchctl list` / `systemctl --user list-timers`. |
+| No log entries at all | Run `python3 scripts/doctor.py`. Either the unit is not loaded, or it names an interpreter that no longer exists — launchd reports that as `78: EX_CONFIG` in `launchctl list` and logs nothing. Re-run `install_agent.py --write --force` with a present interpreter and reload the unit. |
+| `doctor.py` says the heartbeat is stale | No poll has completed recently, whatever the log says. Check the unit first, then run `python3 scripts/poll.py` by hand and read the error. |
 | Nothing processes but annotations exist | `data/cursor.json` is ahead of them. Rewind `search_after` to an earlier timestamp. |

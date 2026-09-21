@@ -57,6 +57,7 @@ LOG_FILE = ROOT / "logs" / "watcher.log"
 STDOUT_LOG = ROOT / "logs" / "launchd.log"
 LOCK_FILE = ROOT / "data" / ".poll.lock"
 NETFAIL_FILE = ROOT / "data" / ".netfail"
+HEALTH_FILE = ROOT / "data" / "health.json"
 
 # Nothing ever pruned the logs: 288 runs a day append forever, and one bad week
 # of tracebacks had already put launchd.log past 200 KB of text no one will read
@@ -324,6 +325,24 @@ def note_network_failure(msg):
         NETFAIL_FILE.write_text(msg)
 
 
+def record_health(status, processed=0, fallbacks=0, detail=""):
+    """Stamp proof that a poll actually ran, for scripts/doctor.py to read.
+
+    The watcher once stopped for four days in silence: its scheduler unit named
+    an interpreter that had since been uninstalled, so the process never
+    started and never logged. An empty log looks exactly like a quiet week —
+    a file whose timestamp stops advancing does not.
+    """
+    HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    HEALTH_FILE.write_text(json.dumps({
+        "last_run": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": status,
+        "processed": processed,
+        "fallbacks": fallbacks,
+        "detail": detail,
+    }, indent=2) + "\n")
+
+
 def clear_network_failure():
     if NETFAIL_FILE.exists():
         NETFAIL_FILE.unlink()
@@ -396,24 +415,34 @@ def main():
         anns = fetch_new(cursor)
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
         note_network_failure(f"hypothesis api returned {e.code} {e.reason}; retrying next run")
+        if not dry_run:
+            record_health("api-error", detail=f"{e.code} {e.reason}")
         return
     except OSError as e:
         note_network_failure(f"hypothesis api unreachable ({e}); retrying next run")
+        if not dry_run:
+            record_health("api-unreachable", detail=str(e))
         return
     clear_network_failure()
 
     fresh = [a for a in anns if seen.get(a["id"]) != a["updated"]]
     if not fresh:
+        if not dry_run:
+            record_health("ok")
         return
     log(f"processing {len(fresh)} new/updated annotation(s) with {MODEL}")
+    fallbacks = 0
     for ann in fresh:
-        process(ann, dry_run=dry_run)
+        record = process(ann, dry_run=dry_run)
+        fallbacks += record.get("classified_by") == "rules-fallback"
         if not dry_run:
             seen[ann["id"]] = ann["updated"]
             SEEN_FILE.write_text(json.dumps(seen))
             CURSOR_FILE.write_text(json.dumps({"search_after": ann["updated"]}))
-    if not dry_run and MAP_FILE.exists():
-        write_overview([json.loads(line) for line in MAP_FILE.open()])
+    if not dry_run:
+        if MAP_FILE.exists():
+            write_overview([json.loads(line) for line in MAP_FILE.open()])
+        record_health("ok", processed=len(fresh), fallbacks=fallbacks)
 
 
 if __name__ == "__main__":

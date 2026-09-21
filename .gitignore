@@ -17,3 +17,6 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+
+# macos
+.DS_Store

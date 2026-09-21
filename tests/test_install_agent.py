@@ -83,3 +83,39 @@ class TestCli:
                             lambda *a, **k: pytest.fail("must not write"))
         assert install_agent.main(["--target", "launchd"]) == 0
         assert "<key>Label</key>" in capsys.readouterr().out
+
+
+class TestInterpreterPreflight:
+    """A unit naming an interpreter that is not there fails silently later.
+
+    launchd answers `last exit code = 78: EX_CONFIG` and writes nothing to the
+    log, which is how this watcher lost four days after an anaconda uninstall.
+    Catch it at install time, where there is someone to read the message.
+    """
+
+    def test_write_refuses_a_missing_interpreter(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(install_agent, "write_file",
+                            lambda *a, **k: pytest.fail("must not write"))
+        with pytest.raises(SystemExit, match="/opt/gone/bin/python3"):
+            install_agent.main(["--target", "launchd", "--write",
+                                "--python", "/opt/gone/bin/python3"])
+
+    def test_the_override_is_for_generating_units_for_another_machine(self, tmp_path,
+                                                                     monkeypatch):
+        written = {}
+        monkeypatch.setattr(install_agent, "write_file",
+                            lambda path, text, force: written.setdefault(path, text))
+        assert install_agent.main(["--target", "systemd", "--write", "--allow-missing-python",
+                                   "--python", "/opt/gone/bin/python3"]) == 0
+        assert written
+
+    def test_printing_a_unit_only_warns(self, capsys):
+        assert install_agent.main(["--target", "launchd",
+                                   "--python", "/opt/gone/bin/python3"]) == 0
+        captured = capsys.readouterr()
+        assert "<key>Label</key>" in captured.out
+        assert "does not exist" in captured.err
+
+    def test_a_real_interpreter_passes_quietly(self, capsys):
+        assert install_agent.main(["--target", "launchd", "--python", sys.executable]) == 0
+        assert "does not exist" not in capsys.readouterr().err
