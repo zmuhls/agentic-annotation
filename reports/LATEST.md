@@ -1,25 +1,25 @@
-# Daily maintenance — 2026-09-20
+# Daily maintenance — 2026-09-21
 
-**Health: the watcher had been dead for four days. Fixed, running, and now classifying again.** `launchctl` reported `last exit code = 78: EX_CONFIG` and nothing had reached `logs/watcher.log` since 09-16. Root cause: the installed launchd unit named `/opt/anaconda3/bin/python3`, and that anaconda install is gone — launchd could not spawn the job at all, so there was no run, no traceback, and no log line. Re-rendered the unit with `install_agent.py --python /usr/bin/python3 --write --force` and reloaded it; it now runs clean (exit 0). Nothing was lost: no annotations arrived in the gap, `data/cursor.json` is intact, and nothing was misfiled.
+**Health: green.** Watcher loaded and running (last exit 0), heartbeat 0 min old, `doctor.py` four `ok` lines, 100/100 tests pass, ruff clean, live `poll.py` exits 0. Cursor and `seen.json` agree with the API — no annotations pending.
 
-**The `claude` login is fixed too.** The CLI authenticates again, so the month-old blocker is closed. Confirmed with a forced live dry-run: the one queued annotation came back `classified_by: claude-sonnet-5` with a real node and role, not the rules fallback.
+**One mystery, resolved, and it named today's fix.** At 00:56 UTC a run logged `processing 1 new/updated annotation(s)` and then wrote nothing at all: no completion line, no traceback, no cursor advance, no health stamp. It was killed mid-classification — a `claude -p` call can run for minutes, and the scheduler sends `SIGTERM` when the machine sleeps. The tell: that line never reached the scheduler log, whose last write is still 09-16, because stdout to a file is block-buffered and the buffer died with the process. Nothing was lost (the cursor only advances per finished annotation), and the annotation itself has since been deleted from Hypothesis, so there is nothing to re-run. But ruling that out took an hour it should not have.
 
-**Why this took four days to notice, and the fix for that.** An empty log is ambiguous — a quiet week and a watcher that never starts look identical. Three changes make the difference visible:
+**Changed today:**
 
-- **`scripts/doctor.py`** (new) checks what silence hides: config keys (never printing the token), the `claude` binary, a launchd/systemd unit *for this checkout* whose interpreter still exists, and heartbeat freshness. Exits non-zero, so it doubles as a cron/CI check.
-- **Heartbeat.** Every completed poll stamps `data/health.json` with time, status, count, and how many annotations took the rules fallback. A timestamp that stops advancing is unambiguous where an empty log is not; the fallback count catches a live-but-degraded classifier (the other failure this project has had).
-- **`install_agent.py --write` now refuses an interpreter that does not exist**, which is where this bug was installable in the first place. `--allow-missing-python` covers generating a unit for another host. INSTALL.md says to pick an interpreter that outlives a toolchain you might uninstall.
+- **Interrupted runs now say so.** `poll.py` catches `SIGTERM`/`SIGINT`, logs where it stopped, and records `status: interrupted` — which `doctor.py` already surfaces as a warning. An unhandled exception anywhere in the poll records `status: error` with the traceback, instead of leaving the previous run's `ok` in place. Verified with a real `SIGTERM` to a real process on isolated paths: exit 143, health stamped, log line written.
+- **`log()` flushes stdout,** so a killed run keeps the lines that explain the kill.
+- **`CHANGELOG.md`** (agenda item), Keep a Changelog format, entries by date landed.
+- **Docs:** the 2026-07-15 design spec's `launchd/com.…plist` path (a file the repo stopped carrying in August) is amended to point at the generated unit; README gains a short paragraph on the two new non-`ok` statuses.
 
-**Verify:** `py_compile` clean, ruff clean, **93/93 tests pass** (29 new, covering unit discovery, a missing interpreter, heartbeat staleness/status/fallbacks, and the install preflight). Live `poll.py` exits 0; `doctor.py` reports four `ok` lines. The forced dry-run restored `data/cursor.json` and `data/seen.json` byte-identical (md5-checked). Also: `.DS_Store` added to `.gitignore`.
-
-**Push is blocked — a human is needed.** `git push` fails before it reaches GitHub: the credential helper in `~/.gitconfig` is `!/usr/local/bin/gh auth git-credential`, and that binary is gone (the same class of breakage as the anaconda interpreter — the only `gh` left on PATH is an unrelated pip package). Both of today's commits are on local `main` and will go up as soon as someone reinstalls the GitHub CLI (`brew install gh && gh auth login`) or repoints the helper.
+**Verify:** 7 new tests (SIGTERM/SIGINT stamping, dry-run leaving no stamp, crash recorded and logged, both handlers registered) — 100 total. Forced live dry-run at a rewound cursor returned `classified_by: claude-sonnet-5` with a real node and role; `cursor.json` and `seen.json` restored md5-identical.
 
 **Dependencies:** none added. Runtime is still stdlib-only.
 
+**Push is still blocked — same human-only fix as yesterday.** `git push` dies at `/usr/local/bin/gh: No such file or directory`: `~/.gitconfig` sets that broken binary as the *only* credential helper for github.com (its entry resets the list, so the global `store` and system `osxkeychain` never get a turn). I retried via `osxkeychain` explicitly and there is no credential there either. **Seven commits are now waiting on local `main`.** Fix: install the real GitHub CLI (no Homebrew on this machine — use the official installer or `gh` from a release tarball), then `gh auth login`; or repoint `credential."https://github.com".helper` at a helper that has a token.
+
 **Next candidates (agenda):**
-- **ACTION:** reinstall/repoint the `gh` credential helper so pushes work again; today's commits are waiting locally.
-- ADOPTERS: a script that drafts a starter `ia.md` from the adopter's own annotation profile.
-- PRO-GRADE: CHANGELOG.md; `pyproject` console entry points (`hypothesis-watch`, `hypothesis-doctor`); type hints on `poll.py`.
-- ROBUSTNESS: per-classification cost visibility (~$0.10 each) in the log, from the CLI's usage envelope; batch handling when many annotations arrive at once (currently one CLI call each, serially).
-- DOCS: the 2026-07-15 design spec still names the old plist path.
-- MAINTENANCE: ruff *format* has never been run (`ruff format --check` would reformat 9 files); decide whether to adopt it repo-wide in one commit or drop it from the workflow.
+- **ACTION (human):** repair the `gh` credential helper; seven commits are stuck locally.
+- ADOPTERS: a script that drafts a starter `ia.md` from the adopter's own annotation profile (`bootstrap_routing.py` already does this for `routing.json`).
+- PRO-GRADE: `pyproject` packaging + console entry points (`hypothesis-watch`, `hypothesis-doctor`) — needs `scripts/` turned into a real package; type hints on `poll.py`.
+- ROBUSTNESS: per-classification cost visibility (~$0.10 each) from the CLI's usage envelope; batch handling when many annotations arrive at once (currently one serial CLI call each, and a long batch is exactly what a sleep `SIGTERM` interrupts).
+- MAINTENANCE: `ruff format` has never been run (`--check` would reformat 9 files); adopt it repo-wide in one commit or drop it from the workflow.
