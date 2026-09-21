@@ -1,20 +1,22 @@
-# Daily maintenance — 2026-08-13
+# Daily maintenance — 2026-09-20
 
-**Health: watcher up, classification still down — same human action pending.** The launchd job is loaded and last exited 0; `poll.py` runs clean against the live API; no new tracebacks. Yesterday's only log entries were a laptop-asleep DNS outage at 18:10 and its recovery at 21:58 — one line each, which is the 08-10 outage handling working as designed. But `claude` still answers **`Failed to authenticate: OAuth session expired and could not be refreshed`**, so a forced live dry-run classified by rules again. **Someone needs to run `claude` and sign in.** No annotations are queued; nothing has been misfiled.
+**Health: the watcher had been dead for four days. Fixed, running, and now classifying again.** `launchctl` reported `last exit code = 78: EX_CONFIG` and nothing had reached `logs/watcher.log` since 09-16. Root cause: the installed launchd unit named `/opt/anaconda3/bin/python3`, and that anaconda install is gone — launchd could not spawn the job at all, so there was no run, no traceback, and no log line. Re-rendered the unit with `install_agent.py --python /usr/bin/python3 --write --force` and reloaded it; it now runs clean (exit 0). Nothing was lost: no annotations arrived in the gap, `data/cursor.json` is intact, and nothing was misfiled.
 
-**Adoption — the last hardcoded machine is out of the repo.** `launchd/com.zachmuhlbauer.hypothesis-watcher.plist` carried one person's home directory, anaconda path, and reverse-dns label in a public repo. Deleted, replaced by **`scripts/install_agent.py`**, which renders the unit from whatever checkout you run it in: launchd plist (via stdlib `plistlib`), systemd user `.service` + `.timer`, or a crontab line, with `--label / --python / --interval / --write / --force`. Verified it reproduces the currently-installed plist exactly. The live agent was untouched — it loads from `~/Library/LaunchAgents`, not the repo.
+**The `claude` login is fixed too.** The CLI authenticates again, so the month-old blocker is closed. Confirmed with a forced live dry-run: the one queued annotation came back `classified_by: claude-sonnet-5` with a real node and role, not the rules fallback.
 
-**Adoption — `INSTALL.md`.** From-scratch path: requirements (incl. the `claude` login and the ~$0.10/classification cost), config keys as a table, bootstrap routing, backfill, a dry-run check *before* scheduling, all three schedulers with their verify/pause commands (plus `loginctl enable-linger` and the macOS permission prompt), and a troubleshooting table. README links it and drops the plist row.
+**Why this took four days to notice, and the fix for that.** An empty log is ambiguous — a quiet week and a watcher that never starts look identical. Two changes make the difference visible:
 
-**Robustness — logs stop growing forever.** Nothing ever pruned them; `launchd.log` was 205 KB, mostly tracebacks fixed a week ago. Each poll now trims either log past 1 MB down to its last ~250 KB behind a marker line. Rewritten **in place, not renamed** — the scheduler owns an append descriptor on that file and a rename would orphan it; verified the inode survives, on a copy of the real log.
+- **`scripts/doctor.py`** (new) checks what silence hides: config keys (never printing the token), the `claude` binary, a launchd/systemd unit *for this checkout* whose interpreter still exists, and heartbeat freshness. Exits non-zero, so it doubles as a cron/CI check.
+- **Heartbeat.** Every completed poll stamps `data/health.json` with time, status, count, and how many annotations took the rules fallback. A timestamp that stops advancing is unambiguous where an empty log is not; the fallback count catches a live-but-degraded classifier (the other failure this project has had).
+- **`install_agent.py --write` now refuses an interpreter that does not exist**, which is where this bug was installable in the first place. `--allow-missing-python` covers generating a unit for another host. INSTALL.md says to pick an interpreter that outlives a toolchain you might uninstall.
 
-**Verify:** `py_compile` clean, ruff clean, **64/64 tests pass** (13 new, covering unit generation for all three targets and the trim's tail/inode/no-clobber behavior). Live `poll.py` exits 0; a dry-run with the cursor rewound and one `seen` entry dropped forced a real classification attempt, and `data/cursor.json` + `data/seen.json` restored byte-identical (md5-checked).
+**Verify:** `py_compile` clean, ruff clean, **93/93 tests pass** (29 new, covering unit discovery, a missing interpreter, heartbeat staleness/status/fallbacks, and the install preflight). Live `poll.py` exits 0; `doctor.py` reports four `ok` lines. The forced dry-run restored `data/cursor.json` and `data/seen.json` byte-identical (md5-checked). Also: `.DS_Store` added to `.gitignore`.
 
 **Dependencies:** none added. Runtime is still stdlib-only.
 
 **Next candidates (agenda):**
-- **ACTION:** run `claude` and sign in — classification stays rules-only until then.
 - ADOPTERS: a script that drafts a starter `ia.md` from the adopter's own annotation profile.
-- PRO-GRADE: CHANGELOG.md; `pyproject` console entry points (`hypothesis-watch`, `hypothesis-install-agent`); type hints on `poll.py`.
+- PRO-GRADE: CHANGELOG.md; `pyproject` console entry points (`hypothesis-watch`, `hypothesis-doctor`); type hints on `poll.py`.
 - ROBUSTNESS: per-classification cost visibility (~$0.10 each) in the log, from the CLI's usage envelope; batch handling when many annotations arrive at once (currently one CLI call each, serially).
 - DOCS: the 2026-07-15 design spec still names the old plist path.
+- MAINTENANCE: ruff *format* has never been run (`ruff format --check` would reformat 9 files); decide whether to adopt it repo-wide in one commit or drop it from the workflow.
