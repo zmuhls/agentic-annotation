@@ -4,7 +4,7 @@
 
 **The `claude` login is fixed too.** The CLI authenticates again, so the month-old blocker is closed. Confirmed with a forced live dry-run: the one queued annotation came back `classified_by: claude-sonnet-5` with a real node and role, not the rules fallback.
 
-**Why this took four days to notice, and the fix for that.** An empty log is ambiguous — a quiet week and a watcher that never starts look identical. Two changes make the difference visible:
+**Why this took four days to notice, and the fix for that.** An empty log is ambiguous — a quiet week and a watcher that never starts look identical. Three changes make the difference visible:
 
 - **`scripts/doctor.py`** (new) checks what silence hides: config keys (never printing the token), the `claude` binary, a launchd/systemd unit *for this checkout* whose interpreter still exists, and heartbeat freshness. Exits non-zero, so it doubles as a cron/CI check.
 - **Heartbeat.** Every completed poll stamps `data/health.json` with time, status, count, and how many annotations took the rules fallback. A timestamp that stops advancing is unambiguous where an empty log is not; the fallback count catches a live-but-degraded classifier (the other failure this project has had).
