@@ -32,6 +32,18 @@ def isolate_poll_paths(tmp_path, monkeypatch):
         monkeypatch.setattr(poll, attr, tmp_path / original.name)
 
 
+@pytest.fixture(autouse=True)
+def no_real_signal_handlers(monkeypatch):
+    """Keep `poll.main()` from rebinding SIGTERM/SIGINT in the pytest process.
+
+    The real handler calls sys.exit, so leaving it installed would turn a
+    Ctrl-C during a test run into a half-swallowed exit. Stubbing registration
+    rather than `install_interrupt_handlers` keeps that function itself under
+    test; monkeypatch restores the real `signal.signal` afterwards.
+    """
+    monkeypatch.setattr(poll.signal, "signal", lambda sig, handler: None)
+
+
 # Fictional stand-ins for the real placement tables, which live in the
 # gitignored routing.json. Tests assert against these so the suite passes on a
 # fresh clone, keeps personal group ids out of this public repo, and does not

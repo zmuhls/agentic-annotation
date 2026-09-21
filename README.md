@@ -153,6 +153,15 @@ invisible and exits non-zero if any of them is broken:
   how many annotations took the rules fallback on the last run, which is how a
   live-but-degraded classifier shows up.
 
+A run that does not complete says so rather than leaving the last good stamp in
+place. The scheduler sends `SIGTERM` when the machine sleeps or the job is
+unloaded, which can land in the middle of a classification that takes minutes;
+that run logs where it stopped and records `status: interrupted`. An unhandled
+exception records `status: error` with the traceback. Neither loses work — the
+cursor only advances once an annotation is fully written, so the next run
+re-fetches whatever was in flight — but `doctor.py` reports both as warnings
+instead of a green heartbeat.
+
 ```sh
 python3 scripts/doctor.py
 ok   config: watching acct:you@hypothes.is

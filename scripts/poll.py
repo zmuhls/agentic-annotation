@@ -16,6 +16,7 @@ Manual run: python3 scripts/poll.py [--dry-run]
 import fcntl
 import json
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -75,7 +76,10 @@ def log(msg):
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     with LOG_FILE.open("a") as f:
         f.write(f"[{stamp}] {msg}\n")
-    print(msg)
+    # flush: stdout is the scheduler's log file, so it is block-buffered, and a
+    # run killed mid-classification otherwise loses the very lines that would
+    # have explained the kill.
+    print(msg, flush=True)
 
 
 def trim_log(path, max_bytes=LOG_MAX_BYTES, keep_bytes=LOG_KEEP_BYTES):
@@ -343,6 +347,32 @@ def record_health(status, processed=0, fallbacks=0, detail=""):
     }, indent=2) + "\n")
 
 
+def _interrupt_handler(dry_run):
+    """Say where a cut-short run stopped, instead of vanishing mid-classification.
+
+    launchd sends SIGTERM when the machine sleeps or the job is unloaded, and a
+    single `claude -p` call can be in flight for minutes. Python's default
+    handler kills the process outright: on 2026-09-21 a run logged "processing 1
+    new/updated annotation(s)" and then nothing at all — no traceback, no health
+    stamp, and not even that line in the scheduler log. Nothing was lost (the
+    cursor only advances per finished annotation, so the next run re-fetches),
+    but the silence cost an hour of forensics to rule out a real fault.
+    """
+    def handler(signum, _frame):
+        name = signal.Signals(signum).name
+        log(f"poll interrupted by {name} mid-run; no state written, "
+            "the next run picks up from the same cursor")
+        if not dry_run:
+            record_health("interrupted", detail=f"run cut short by {name}")
+        sys.exit(128 + signum)
+    return handler
+
+
+def install_interrupt_handlers(dry_run):
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, _interrupt_handler(dry_run))
+
+
 def clear_network_failure():
     if NETFAIL_FILE.exists():
         NETFAIL_FILE.unlink()
@@ -403,7 +433,21 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         return  # previous run still going
+    install_interrupt_handlers(dry_run)
+    try:
+        poll_once(dry_run)
+    except Exception as e:
+        # Anything unhandled below (a write that fails, malformed map.jsonl)
+        # used to leave only a traceback in the scheduler log while
+        # data/health.json still read "ok" from the last good run — the exact
+        # silence doctor.py exists to break.
+        log(f"poll failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        if not dry_run:
+            record_health("error", detail=f"{type(e).__name__}: {e}"[:200])
+        sys.exit(1)
 
+
+def poll_once(dry_run):
     for path in (LOG_FILE, STDOUT_LOG):
         trim_log(path)
 

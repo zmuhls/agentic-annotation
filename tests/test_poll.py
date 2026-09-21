@@ -322,3 +322,70 @@ class TestHeartbeat:
         finally:
             held.close()
         assert not poll.HEALTH_FILE.exists()
+
+
+class TestInterruptedAndFailedRuns:
+    """A run that is killed or crashes has to leave evidence.
+
+    Both failures previously looked identical to a quiet week: the scheduler
+    log kept a stale block-buffered tail and data/health.json still read "ok"
+    from the previous run.
+    """
+
+    def _health(self):
+        return json.loads(poll.HEALTH_FILE.read_text())
+
+    def test_sigterm_stamps_an_interrupted_heartbeat(self):
+        handler = poll._interrupt_handler(dry_run=False)
+        with pytest.raises(SystemExit) as exc:
+            handler(poll.signal.SIGTERM, None)
+        assert exc.value.code == 128 + int(poll.signal.SIGTERM)
+        health = self._health()
+        assert health["status"] == "interrupted"
+        assert "SIGTERM" in health["detail"]
+
+    def test_sigterm_says_the_next_run_resumes(self):
+        with pytest.raises(SystemExit):
+            poll._interrupt_handler(dry_run=False)(poll.signal.SIGINT, None)
+        assert "picks up from the same cursor" in poll.LOG_FILE.read_text()
+
+    def test_a_dry_run_interrupt_leaves_no_heartbeat(self):
+        with pytest.raises(SystemExit):
+            poll._interrupt_handler(dry_run=True)(poll.signal.SIGTERM, None)
+        assert not poll.HEALTH_FILE.exists()
+
+    def test_an_unhandled_crash_is_recorded_not_swallowed(self, monkeypatch):
+        def boom(dry_run):
+            raise RuntimeError("map.jsonl is truncated")
+        monkeypatch.setattr(poll, "poll_once", boom)
+        with pytest.raises(SystemExit) as exc:
+            poll.main()
+        assert exc.value.code == 1
+        health = self._health()
+        assert health["status"] == "error"
+        assert "map.jsonl is truncated" in health["detail"]
+
+    def test_a_crash_logs_the_traceback(self, monkeypatch):
+        monkeypatch.setattr(poll, "poll_once",
+                            lambda dry_run: 1 // 0)
+        with pytest.raises(SystemExit):
+            poll.main()
+        text = poll.LOG_FILE.read_text()
+        assert "poll failed: ZeroDivisionError" in text
+        assert "Traceback" in text
+
+    def test_a_crashing_dry_run_leaves_no_heartbeat(self, monkeypatch):
+        monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
+        monkeypatch.setattr(poll, "poll_once",
+                            lambda dry_run: 1 // 0)
+        with pytest.raises(SystemExit):
+            poll.main()
+        assert not poll.HEALTH_FILE.exists()
+
+    def test_a_real_run_registers_both_handlers(self, monkeypatch):
+        installed = []
+        monkeypatch.setattr(poll.signal, "signal",
+                            lambda sig, handler: installed.append(sig))
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: [])
+        poll.main()
+        assert set(installed) == {poll.signal.SIGTERM, poll.signal.SIGINT}
