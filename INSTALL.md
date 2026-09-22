@@ -36,16 +36,33 @@ Fill in `config.json`:
 | `model` | `claude-sonnet-5` unless you have a reason to change it |
 | `claude_bin` | optional — an explicit path to the `claude` binary |
 
-Then draft your placement tables from your own Hypothesis groups:
+Then draft your taxonomy from your own annotation history:
+
+```sh
+python3 scripts/bootstrap_ia.py                # preview
+python3 scripts/bootstrap_ia.py --write --force
+```
+
+`architecture/ia.md` ships with the maintainer's taxonomy, and it is the file the
+classifier reads on every poll — leaving it in place would sort your annotations
+into someone else's projects. The script replaces its nodes section with one
+top-level node per group you belong to, each group's busiest domains as children,
+your public-layer reading under `reading`, and `inbox`. The action-tag vocabulary
+below it is the same for everyone (`poll.py` and `build_ia.py` implement it), so
+it carries over untouched. Then edit: the node descriptions are what the model
+reasons over, and the generated ones are placeholders.
+
+Now draft your placement tables from the same groups:
 
 ```sh
 python3 scripts/bootstrap_routing.py --write
 ```
 
 That writes `routing.json` naming every group you belong to and pointing each at
-`inbox`. Edit those to node ids from `architecture/ia.md` and add the domains you
-annotate; `routing.example.json` documents the whole schema and the order the
-tables are consulted in. Both `config.json` and `routing.json` are gitignored.
+`inbox`. Edit those to node ids from the `ia.md` you just wrote and add the
+domains you annotate; `routing.example.json` documents the whole schema and the
+order the tables are consulted in. Both `config.json` and `routing.json` are
+gitignored.
 
 ## 3. Backfill and sort
 
