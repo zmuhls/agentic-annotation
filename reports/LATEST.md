@@ -1,25 +1,24 @@
-# Daily maintenance — 2026-09-21
+# Daily maintenance — 2026-09-22
 
-**Health: green.** Watcher loaded and running (last exit 0), heartbeat 0 min old, `doctor.py` four `ok` lines, 100/100 tests pass, ruff clean, live `poll.py` exits 0. Cursor and `seen.json` agree with the API — no annotations pending.
+**Health: green.** Watcher loaded, last exit 0; `doctor.py` four `ok` lines; heartbeat fresh; 131 tests pass; ruff clean; live `poll.py` exits 0. Cursor and `seen.json` agree with the API — nothing pending.
 
-**One mystery, resolved, and it named today's fix.** At 00:56 UTC a run logged `processing 1 new/updated annotation(s)` and then wrote nothing at all: no completion line, no traceback, no cursor advance, no health stamp. It was killed mid-classification — a `claude -p` call can run for minutes, and the scheduler sends `SIGTERM` when the machine sleeps. The tell: that line never reached the scheduler log, whose last write is still 09-16, because stdout to a file is block-buffered and the buffer died with the process. Nothing was lost (the cursor only advances per finished annotation), and the annotation itself has since been deleted from Hypothesis, so there is nothing to re-run. But ruling that out took an hour it should not have.
+**Two log lines that looked like yesterday's ghost, weren't.** `watcher.log` holds a bare `processing 1 new/updated annotation(s)` at 09-21 12:16 with no completion line. That was yesterday's own forced dry-run: a dry run logs the opening line, prints its JSON to stdout, and writes nothing else by design. The 00:56 entry beside it is the `SIGTERM` already explained and already instrumented. No fault, nothing to fix.
 
-**Changed today:**
+**Changed today — both from the standing agenda:**
 
-- **Interrupted runs now say so.** `poll.py` catches `SIGTERM`/`SIGINT`, logs where it stopped, and records `status: interrupted` — which `doctor.py` already surfaces as a warning. An unhandled exception anywhere in the poll records `status: error` with the traceback, instead of leaving the previous run's `ok` in place. Verified with a real `SIGTERM` to a real process on isolated paths: exit 143, health stamped, log line written.
-- **`log()` flushes stdout,** so a killed run keeps the lines that explain the kill.
-- **`CHANGELOG.md`** (agenda item), Keep a Changelog format, entries by date landed.
-- **Docs:** the 2026-07-15 design spec's `launchd/com.…plist` path (a file the repo stopped carrying in August) is amended to point at the generated unit; README gains a short paragraph on the two new non-`ok` statuses.
+- **`scripts/bootstrap_ia.py`** (adopters, top priority). `architecture/ia.md` is the last hardcoded personal artifact in the repo, and it is the file the classifier reads on every poll: an adopter who clones and leaves it in place sorts their own annotations into the maintainer's projects. The script asks `/api/profile/groups` and a 200-annotation sample where they actually annotate, then rewrites the nodes section as one top-level node per group, each group's busiest domains (≥2 hits) as children, public-layer reading under `reading`, and `inbox`. The action-tag vocabulary below it is the same for everyone — `poll.py` and `build_ia.py` implement it — so it carries over verbatim instead of being restated in Python. The preamble's account and its example node id are rewritten too. Same `--write` / `--force` contract as `bootstrap_routing.py`.
+- **Per-classification cost visibility.** The `claude` CLI already reports `total_cost_usd` in its result envelope and the watcher was throwing it away. It now lands on the annotation's map record, on its log line, and in `data/health.json` as a per-run figure plus a lifetime total that `doctor.py` prints beside the heartbeat. Nothing estimates or prices tokens; a rules fallback costs and records nothing.
+- **Real number, worth knowing:** the verification call billed **$0.187**, not the ~$0.10 the agenda assumed. At that rate the tally matters more than it looked like it would.
 
-**Verify:** 7 new tests (SIGTERM/SIGINT stamping, dry-run leaving no stamp, crash recorded and logged, both handlers registered) — 100 total. Forced live dry-run at a rewound cursor returned `classified_by: claude-sonnet-5` with a real node and role; `cursor.json` and `seen.json` restored md5-identical.
+**Verify:** 22 new tests (slug collisions, domain thresholds, vocabulary carried through, both envelope shapes, lifetime tally, corrupt-stamp recovery) — 131 total, ruff clean. One live classification through the changed path returned `classified_by: claude-sonnet-5` with a real node, role, and `cost_usd`, run on throwaway paths so the five-minute watcher could fire mid-run without colliding; `cursor.json` and `seen.json` md5-identical before and after. The scheduled 14:02 poll then ran the new code on its own and stamped the new fields.
 
 **Dependencies:** none added. Runtime is still stdlib-only.
 
-**Push is still blocked — same human-only fix as yesterday.** `git push` dies at `/usr/local/bin/gh: No such file or directory`: `~/.gitconfig` sets that broken binary as the *only* credential helper for github.com (its entry resets the list, so the global `store` and system `osxkeychain` never get a turn). I retried via `osxkeychain` explicitly and there is no credential there either. **Seven commits are now waiting on local `main`.** Fix: install the real GitHub CLI (no Homebrew on this machine — use the official installer or `gh` from a release tarball), then `gh auth login`; or repoint `credential."https://github.com".helper` at a helper that has a token.
+**Push is still blocked — same human-only fix, now four days old.** `git push` dies at `/usr/local/bin/gh: No such file or directory`, which `~/.gitconfig` names as the *only* credential helper for github.com. The `gh` on `PATH` is an unrelated Python script, not the GitHub CLI. **Eleven commits are now waiting on local `main`.** Fix: install the real GitHub CLI and `gh auth login`, or repoint `credential."https://github.com".helper` at a helper that holds a token.
 
 **Next candidates (agenda):**
-- **ACTION (human):** repair the `gh` credential helper; seven commits are stuck locally.
-- ADOPTERS: a script that drafts a starter `ia.md` from the adopter's own annotation profile (`bootstrap_routing.py` already does this for `routing.json`).
+- **ACTION (human):** repair the `gh` credential helper; eleven commits are stuck locally.
 - PRO-GRADE: `pyproject` packaging + console entry points (`hypothesis-watch`, `hypothesis-doctor`) — needs `scripts/` turned into a real package; type hints on `poll.py`.
-- ROBUSTNESS: per-classification cost visibility (~$0.10 each) from the CLI's usage envelope; batch handling when many annotations arrive at once (currently one serial CLI call each, and a long batch is exactly what a sleep `SIGTERM` interrupts).
+- ROBUSTNESS: batch handling when many annotations arrive at once (one serial CLI call each today, and a long batch is exactly what a sleep `SIGTERM` interrupts); a spend ceiling per run now that the real per-call price is known.
+- ADOPTERS: `bootstrap_ia.py` could seed `routing.json` directly from the nodes it just wrote, instead of leaving every group at `inbox` for hand-mapping.
 - MAINTENANCE: `ruff format` has never been run (`--check` would reformat 9 files); adopt it repo-wide in one commit or drop it from the workflow.
