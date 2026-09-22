@@ -236,7 +236,14 @@ AUTH_MARKERS = ("authenticate", "oauth", "unauthorized", "invalid api key",
                 "please run /login")
 
 
-def call_sonnet(prompt, attempts=2):
+def call_sonnet(prompt, attempts=2, meta=None):
+    """Classify one annotation, optionally reporting what the call cost.
+
+    `meta`, when given, is filled with the CLI's own accounting (`cost_usd`)
+    rather than returned alongside the classification: the return value stays
+    the model's JSON, which is what every caller actually wants, and telemetry
+    a caller does not ask for costs it nothing.
+    """
     proc, detail = None, ""
     for attempt in range(attempts):
         proc = subprocess.run(
@@ -258,14 +265,16 @@ def call_sonnet(prompt, attempts=2):
         wrapper = json.loads(proc.stdout)
     except json.JSONDecodeError:
         wrapper = None
+    envelope = None
     if isinstance(wrapper, dict):
-        result = wrapper.get("result", "")
+        envelope = wrapper
     elif isinstance(wrapper, list):
         # some CLI versions emit a list of message objects ending in a result
-        result = next((m.get("result", "") for m in reversed(wrapper)
-                       if isinstance(m, dict) and m.get("type") == "result"), "")
-    else:
-        result = proc.stdout
+        envelope = next((m for m in reversed(wrapper)
+                         if isinstance(m, dict) and m.get("type") == "result"), {})
+    result = proc.stdout if envelope is None else envelope.get("result", "")
+    if meta is not None and isinstance(envelope, dict):
+        meta["cost_usd"] = envelope.get("total_cost_usd")
     start, end = result.find("{"), result.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"no JSON in model output: {result[:200]}")
@@ -329,7 +338,7 @@ def note_network_failure(msg):
         NETFAIL_FILE.write_text(msg)
 
 
-def record_health(status, processed=0, fallbacks=0, detail=""):
+def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0):
     """Stamp proof that a poll actually ran, for scripts/doctor.py to read.
 
     The watcher once stopped for four days in silence: its scheduler unit named
@@ -338,11 +347,23 @@ def record_health(status, processed=0, fallbacks=0, detail=""):
     a file whose timestamp stops advancing does not.
     """
     HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Carry the lifetime spend forward. Each classification is a real ~$0.10
+    # API call, and a per-run figure alone never answers the question anyone
+    # actually asks — what has this watcher cost me? The file is rewritten on
+    # every poll, so the running total has to be read back first.
+    spent = 0.0
+    if HEALTH_FILE.exists():
+        try:
+            spent = float(json.loads(HEALTH_FILE.read_text()).get("cost_usd_total") or 0.0)
+        except (OSError, ValueError, TypeError):
+            spent = 0.0  # a corrupt stamp restarts the tally, never fails a poll
     HEALTH_FILE.write_text(json.dumps({
         "last_run": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "status": status,
         "processed": processed,
         "fallbacks": fallbacks,
+        "cost_usd": round(cost_usd, 4),
+        "cost_usd_total": round(spent + cost_usd, 4),
         "detail": detail,
     }, indent=2) + "\n")
 
@@ -383,11 +404,14 @@ def process(ann, dry_run=False):
     wanted = actions_for(ann.get("tags", []))
     record = record_for(ann)  # rules-based baseline record
     actions = []
+    meta = {}
     try:
-        result = call_sonnet(classify_prompt(ann))
+        result = call_sonnet(classify_prompt(ann), meta=meta)
         record["node"] = result.get("node") or record["node"]
         record["role"] = result.get("role", "")
         record["classified_by"] = MODEL
+        if meta.get("cost_usd") is not None:
+            record["cost_usd"] = round(meta["cost_usd"], 4)
         actions = result.get("actions") or []
         if isinstance(actions, dict):  # tolerate a bare single object
             actions = [actions]
@@ -420,8 +444,9 @@ def process(ann, dry_run=False):
     for action in actions:
         path = write_action_file(ann, action)
         log(f"  action file: {path.name}")
-    log(f"  {ann['id']} -> {record['node']}"
-        f"{' [' + ','.join(wanted) + ']' if wanted else ''}")
+    tags_note = f" [{','.join(wanted)}]" if wanted else ""
+    cost_note = f" ${record['cost_usd']:.4f}" if record.get("cost_usd") else ""
+    log(f"  {ann['id']} -> {record['node']}{tags_note}{cost_note}")
     return record
 
 
@@ -475,10 +500,11 @@ def poll_once(dry_run):
             record_health("ok")
         return
     log(f"processing {len(fresh)} new/updated annotation(s) with {MODEL}")
-    fallbacks = 0
+    fallbacks, spend = 0, 0.0
     for ann in fresh:
         record = process(ann, dry_run=dry_run)
         fallbacks += record.get("classified_by") == "rules-fallback"
+        spend += record.get("cost_usd") or 0.0
         if not dry_run:
             seen[ann["id"]] = ann["updated"]
             SEEN_FILE.write_text(json.dumps(seen))
@@ -486,7 +512,7 @@ def poll_once(dry_run):
     if not dry_run:
         if MAP_FILE.exists():
             write_overview([json.loads(line) for line in MAP_FILE.open()])
-        record_health("ok", processed=len(fresh), fallbacks=fallbacks)
+        record_health("ok", processed=len(fresh), fallbacks=fallbacks, cost_usd=spend)
 
 
 if __name__ == "__main__":

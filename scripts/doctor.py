@@ -133,7 +133,10 @@ def check_heartbeat(health, now, max_age_seconds):
         return Check("warn", "heartbeat",
                      f"last poll {when}, but {fallbacks} annotation(s) took the "
                      "rules fallback — check the classifier (run `claude` and sign in)")
-    return Check("ok", "heartbeat", f"last poll {when}, {health.get('processed', 0)} processed")
+    spend = health.get("cost_usd_total") or 0
+    spend_note = f", ${spend:.2f} spent on classification to date" if spend else ""
+    return Check("ok", "heartbeat",
+                 f"last poll {when}, {health.get('processed', 0)} processed{spend_note}")
 
 
 def check_config(config):

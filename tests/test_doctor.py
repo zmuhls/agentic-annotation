@@ -126,6 +126,16 @@ class TestCheckHeartbeat:
         assert check.level == "warn"
         assert "fallback" in check.detail
 
+    def test_lifetime_spend_is_surfaced_when_there_is_any(self):
+        check = doctor.check_heartbeat(
+            self._health(2, processed=1, cost_usd_total=4.3079), self._now(), 900)
+        assert check.level == "ok"
+        assert "$4.31 spent" in check.detail
+
+    def test_a_watcher_that_has_spent_nothing_says_nothing_about_money(self):
+        check = doctor.check_heartbeat(self._health(2), self._now(), 900)
+        assert "spent" not in check.detail
+
 
 class TestLoadHealth:
     def test_missing_file_is_none(self, tmp_path):

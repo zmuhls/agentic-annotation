@@ -97,23 +97,27 @@ class TestCallSonnet:
             poll.call_sonnet("prompt")
 
 
+def sample_annotation(**over):
+    """One annotation in the shape /api/search returns, for process() tests."""
+    base = {
+        "id": "test1", "uri": "https://mysite.example/x",
+        "document": {"title": ["T"]}, "tags": ["revision"],
+        "target": [{"selector": [
+            {"type": "TextQuoteSelector", "exact": "quoted bit"}]}],
+        "created": "2026-07-15T00:00:00+00:00",
+        "updated": "2026-07-15T00:00:00+00:00",
+        "group": "__world__", "links": {"incontext": "https://hyp.is/x"},
+    }
+    base.update(over)
+    return base
+
+
 @pytest.mark.usefixtures("routing")
 class TestProcess:
-    def _ann(self, **over):
-        base = {
-            "id": "test1", "uri": "https://mysite.example/x",
-            "document": {"title": ["T"]}, "tags": ["revision"],
-            "target": [{"selector": [
-                {"type": "TextQuoteSelector", "exact": "quoted bit"}]}],
-            "created": "2026-07-15T00:00:00+00:00",
-            "updated": "2026-07-15T00:00:00+00:00",
-            "group": "__world__", "links": {"incontext": "https://hyp.is/x"},
-        }
-        base.update(over)
-        return base
+    _ann = staticmethod(sample_annotation)
 
     def test_dry_run_uses_model_result(self, monkeypatch):
-        monkeypatch.setattr(poll, "call_sonnet", lambda p: {
+        monkeypatch.setattr(poll, "call_sonnet", lambda p, **kw: {
             "node": "artifacts/personal-site", "role": "does a thing",
             "actions": [{"type": "revision", "instructions": "do it"}],
         })
@@ -123,7 +127,7 @@ class TestProcess:
         assert rec["classified_by"] == poll.MODEL
 
     def test_falls_back_to_rules_on_model_error(self, monkeypatch):
-        def boom(_):
+        def boom(_, **kw):
             raise RuntimeError("api down")
         monkeypatch.setattr(poll, "call_sonnet", boom)
         rec = poll.process(self._ann(), dry_run=True)
@@ -132,7 +136,7 @@ class TestProcess:
 
     def test_freshly_created_annotation_does_not_crash(self, monkeypatch):
         # document=[] mid-creation shape + model error → must still return a record
-        def boom(_):
+        def boom(_, **kw):
             raise RuntimeError("api down")
         monkeypatch.setattr(poll, "call_sonnet", boom)
         rec = poll.process(self._ann(document=[], target=[], tags=[]),
@@ -389,3 +393,70 @@ class TestInterruptedAndFailedRuns:
         monkeypatch.setattr(poll, "fetch_new", lambda cursor: [])
         poll.main()
         assert set(installed) == {poll.signal.SIGTERM, poll.signal.SIGINT}
+
+
+@pytest.mark.usefixtures("routing")
+class TestCostVisibility:
+    """Each classification is a real ~$0.10 call; the run should say so.
+
+    The CLI reports `total_cost_usd` in its own result envelope, so nothing
+    here estimates or prices tokens — it only carries the number the CLI
+    already handed back.
+    """
+
+    def _health(self):
+        return json.loads(poll.HEALTH_FILE.read_text())
+
+    def test_meta_is_filled_from_the_dict_envelope(self, monkeypatch):
+        envelope = json.dumps({"type": "result", "result": '{"node": "inbox"}',
+                               "total_cost_usd": 0.0937})
+        monkeypatch.setattr(poll.subprocess, "run",
+                            lambda *a, **k: FakeProc(stdout=envelope))
+        meta = {}
+        assert poll.call_sonnet("prompt", meta=meta)["node"] == "inbox"
+        assert meta["cost_usd"] == 0.0937
+
+    def test_meta_is_filled_from_the_list_envelope(self, monkeypatch):
+        envelope = json.dumps([
+            {"type": "system"},
+            {"type": "result", "result": '{"node": "inbox"}', "total_cost_usd": 0.12},
+        ])
+        monkeypatch.setattr(poll.subprocess, "run",
+                            lambda *a, **k: FakeProc(stdout=envelope))
+        meta = {}
+        poll.call_sonnet("prompt", meta=meta)
+        assert meta["cost_usd"] == 0.12
+
+    def test_a_cli_that_reports_no_cost_is_not_an_error(self, monkeypatch):
+        monkeypatch.setattr(poll.subprocess, "run",
+                            lambda *a, **k: FakeProc(stdout=_wrap('{"node": "inbox"}')))
+        meta = {}
+        poll.call_sonnet("prompt", meta=meta)
+        assert meta["cost_usd"] is None
+
+    def test_the_cost_lands_on_the_record(self, monkeypatch):
+        def priced(prompt, meta=None, **kw):
+            meta["cost_usd"] = 0.0821
+            return {"node": "inbox", "role": "r", "actions": []}
+        monkeypatch.setattr(poll, "call_sonnet", priced)
+        rec = poll.process(sample_annotation(), dry_run=True)
+        assert rec["cost_usd"] == 0.0821
+
+    def test_a_rules_fallback_carries_no_cost(self, monkeypatch):
+        def boom(prompt, meta=None, **kw):
+            raise RuntimeError("api down")
+        monkeypatch.setattr(poll, "call_sonnet", boom)
+        rec = poll.process(sample_annotation(), dry_run=True)
+        assert "cost_usd" not in rec
+
+    def test_health_totals_the_run_and_the_lifetime(self):
+        poll.record_health("ok", processed=1, cost_usd=0.10)
+        poll.record_health("ok", processed=2, cost_usd=0.05)
+        health = self._health()
+        assert health["cost_usd"] == 0.05
+        assert health["cost_usd_total"] == 0.15
+
+    def test_a_corrupt_stamp_restarts_the_tally_instead_of_failing(self):
+        poll.HEALTH_FILE.write_text("{not json")
+        poll.record_health("ok", cost_usd=0.02)
+        assert self._health()["cost_usd_total"] == 0.02
