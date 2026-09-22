@@ -40,6 +40,7 @@ Because the cursor tracks `updated` (not `created`), **adding a tag like
 | `architecture/emergent-nodes.md` | Sub-nodes Sonnet proposed; review and fold into ia.md |
 | `actions/` | Generated instruction files for tagged editorial directives |
 | `scripts/appconfig.py` | Loads `config.json` / `routing.json` with `.example` fallbacks |
+| `scripts/bootstrap_ia.py` | Drafts an `architecture/ia.md` from your own annotation history |
 | `scripts/bootstrap_routing.py` | Drafts a `routing.json` from your own Hypothesis groups |
 | `scripts/fetch_annotations.py` | Full re-pull (backfill) |
 | `scripts/build_ia.py` | Rule-based initial sort of the backfill |
@@ -60,12 +61,18 @@ that differs between people:
 cp config.example.json config.json && chmod 600 config.json
 # fill in api_token (hypothes.is → Developer), user (acct:you@hypothes.is), owner
 
-python3 scripts/bootstrap_routing.py --write   # asks /api/profile/groups for your groups
+python3 scripts/bootstrap_ia.py --write --force  # your taxonomy, from your own history
+python3 scripts/bootstrap_routing.py --write     # asks /api/profile/groups for your groups
 ```
 
-`bootstrap_routing.py` writes a `routing.json` naming every group you belong to
-and pointing each at `inbox`; edit those to node ids from `architecture/ia.md`,
-and add the domains you annotate. `routing.example.json` documents the whole
+The committed `architecture/ia.md` is the maintainer's taxonomy, and it is what
+the classifier reads on every poll, so replace it first: `bootstrap_ia.py`
+rewrites its nodes section as one node per group you belong to, each group's
+busiest domains as children, and your public reading under `reading`. The
+action-tag vocabulary below it is the same for everyone and carries over
+untouched. Then `bootstrap_routing.py` writes a `routing.json` naming every
+group and pointing each at `inbox`; edit those to node ids from the `ia.md` you
+just wrote, and add the domains you annotate. `routing.example.json` documents the whole
 schema, including the order the tables are consulted in. Skip the file entirely
 and everything lands in `inbox` — the rules are only a prior, and Sonnet still
 places each annotation against `ia.md`.
@@ -162,12 +169,18 @@ cursor only advances once an annotation is fully written, so the next run
 re-fetches whatever was in flight — but `doctor.py` reports both as warnings
 instead of a green heartbeat.
 
+Classification is not free — one annotation is one `claude -p` call, on the
+order of ten cents. Every run records what the CLI says it charged, per
+annotation in `architecture/map.jsonl` and in the watcher log, and `doctor.py`
+reports the lifetime total alongside the heartbeat. Annotations that took the
+rules fallback cost nothing and record nothing.
+
 ```sh
 python3 scripts/doctor.py
 ok   config: watching acct:you@hypothes.is
 ok   claude cli: /usr/local/bin/claude
 ok   scheduler: local.hypothesis-watcher.plist runs /usr/bin/python3
-ok   heartbeat: last poll 3 min ago, 0 processed
+ok   heartbeat: last poll 3 min ago, 0 processed, $4.31 spent on classification to date
 ```
 
 ## When classification stops working

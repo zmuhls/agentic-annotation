@@ -19,6 +19,15 @@ on `main`.
   scheduler mid-classification (`SIGTERM` on sleep or unload) now logs where it
   stopped and records `status: interrupted`; an unhandled exception records
   `status: error` with the traceback instead of leaving a stale `ok`.
+- `scripts/bootstrap_ia.py`: drafts `architecture/ia.md` from the adopter's own
+  groups and annotated domains, carrying the shared action-tag vocabulary over
+  from the existing file. The committed taxonomy is one person's, and it is the
+  file the classifier reads on every poll — an adopter who leaves it in place
+  sorts their annotations into someone else's projects.
+- Cost visibility. `poll.py` records the `total_cost_usd` the `claude` CLI
+  reports for each classification onto that annotation's map record and log
+  line, and `data/health.json` carries a per-run figure and a lifetime total
+  that `doctor.py` prints beside the heartbeat.
 - `CHANGELOG.md` (this file).
 
 ### Changed
