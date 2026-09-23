@@ -47,6 +47,11 @@ MODEL = CONFIG.get("model", "claude-sonnet-5")
 # owner in config rather than in the prompt string is what lets someone else
 # adopt the repo without editing code.
 OWNER = CONFIG.get("owner", "this Hypothesis knowledge system")
+# Most annotations one poll will classify. Each is a real billed call (~$0.19
+# measured) run serially under the poll lock, so an unbounded batch — a first
+# run with an old `since`, a bulk re-tag — is both an open-ended bill and a
+# long window for a sleep SIGTERM. The rest wait for the next run; 0 disables.
+MAX_PER_RUN = int(CONFIG.get("max_per_run", 25) or 0)
 
 CURSOR_FILE = ROOT / "data" / "cursor.json"
 SEEN_FILE = ROOT / "data" / "seen.json"
@@ -499,7 +504,10 @@ def poll_once(dry_run):
         if not dry_run:
             record_health("ok")
         return
-    log(f"processing {len(fresh)} new/updated annotation(s) with {MODEL}")
+    fresh, deferred = cap_batch(fresh, MAX_PER_RUN)
+    log(f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
+        + (f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})"
+           if deferred else ""))
     fallbacks, spend = 0, 0.0
     for ann in fresh:
         record = process(ann, dry_run=dry_run)
@@ -512,7 +520,23 @@ def poll_once(dry_run):
     if not dry_run:
         if MAP_FILE.exists():
             write_overview([json.loads(line) for line in MAP_FILE.open()])
-        record_health("ok", processed=len(fresh), fallbacks=fallbacks, cost_usd=spend)
+        record_health("ok", processed=len(fresh), fallbacks=fallbacks, cost_usd=spend,
+                      detail=f"{deferred} deferred to next run" if deferred else "")
+
+
+def cap_batch(fresh, limit):
+    """Split `fresh` (ascending by `updated`) into this run's share and a count left over.
+
+    The cursor advances to the last processed `updated`, and the next search
+    starts strictly after it — so a cut between two annotations sharing one
+    timestamp would silently skip the second. Ties stay together instead.
+    """
+    if limit <= 0 or len(fresh) <= limit:
+        return fresh, 0
+    end = limit
+    while end < len(fresh) and fresh[end]["updated"] == fresh[end - 1]["updated"]:
+        end += 1
+    return fresh[:end], len(fresh) - end
 
 
 if __name__ == "__main__":

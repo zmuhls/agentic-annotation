@@ -34,6 +34,7 @@ Fill in `config.json`:
 | `owner` | how the prompt should name whose knowledge system this is |
 | `since` | how far back the first backfill reaches (ISO 8601) |
 | `model` | `claude-sonnet-5` unless you have a reason to change it |
+| `max_per_run` | most annotations one poll classifies (default 25; `0` = no limit) |
 | `claude_bin` | optional — an explicit path to the `claude` binary |
 
 Then draft your taxonomy from your own annotation history:

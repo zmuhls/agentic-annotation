@@ -460,3 +460,48 @@ class TestCostVisibility:
         poll.HEALTH_FILE.write_text("{not json")
         poll.record_health("ok", cost_usd=0.02)
         assert self._health()["cost_usd_total"] == 0.02
+
+
+def _rows(*stamps):
+    return [{"id": f"a{i}", "updated": s} for i, s in enumerate(stamps)]
+
+
+class TestBatchCap:
+    """A backlog is paced across runs instead of billed in one sitting."""
+
+    def test_under_the_cap_is_untouched(self):
+        rows = _rows("t1", "t2")
+        assert poll.cap_batch(rows, 5) == (rows, 0)
+
+    def test_zero_disables_the_cap(self):
+        rows = _rows(*[f"t{i}" for i in range(40)])
+        assert poll.cap_batch(rows, 0) == (rows, 0)
+
+    def test_cuts_at_the_limit_and_counts_the_rest(self):
+        rows = _rows("t1", "t2", "t3", "t4")
+        kept, deferred = poll.cap_batch(rows, 2)
+        assert [r["id"] for r in kept] == ["a0", "a1"]
+        assert deferred == 2
+
+    def test_never_splits_a_shared_timestamp(self):
+        # the cursor would land on t2 and the next search starts after it
+        rows = _rows("t1", "t2", "t2", "t3")
+        kept, deferred = poll.cap_batch(rows, 2)
+        assert [r["id"] for r in kept] == ["a0", "a1", "a2"]
+        assert deferred == 1
+
+    def test_the_cursor_stops_at_the_last_processed_row(self, monkeypatch):
+        rows = _rows("2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00",
+                     "2026-09-20T00:02:00+00:00")
+        monkeypatch.setattr(poll, "MAX_PER_RUN", 2)
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: {
+            "id": ann["id"], "classified_by": poll.MODEL})
+        poll.main()
+        cursor = json.loads(poll.CURSOR_FILE.read_text())["search_after"]
+        assert cursor == "2026-09-20T00:01:00+00:00"
+        assert set(json.loads(poll.SEEN_FILE.read_text())) == {"a0", "a1"}
+        health = json.loads(poll.HEALTH_FILE.read_text())
+        assert health["processed"] == 2
+        assert health["detail"] == "1 deferred to next run"
+        assert "1 deferred to the next run" in poll.LOG_FILE.read_text()

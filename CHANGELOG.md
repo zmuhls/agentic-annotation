@@ -9,6 +9,11 @@ on `main`.
 
 ### Added
 
+- A per-run batch cap (`max_per_run` in `config.json`, default 25). A backlog
+  larger than the cap is classified across successive polls rather than in one
+  open-ended, serially billed run; annotations sharing a timestamp are never
+  split across the cut, since the next search starts strictly after the cursor.
+
 - `scripts/doctor.py`: a one-shot health check (config keys, `claude` binary,
   a scheduler unit for *this* checkout whose interpreter still exists,
   heartbeat freshness). Exits non-zero, so it doubles as a cron or CI check.

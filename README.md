@@ -170,10 +170,15 @@ re-fetches whatever was in flight — but `doctor.py` reports both as warnings
 instead of a green heartbeat.
 
 Classification is not free — one annotation is one `claude -p` call, on the
-order of ten cents. Every run records what the CLI says it charged, per
+order of ten to twenty cents. Every run records what the CLI says it charged, per
 annotation in `architecture/map.jsonl` and in the watcher log, and `doctor.py`
 reports the lifetime total alongside the heartbeat. Annotations that took the
 rules fallback cost nothing and record nothing.
+
+One run classifies at most `max_per_run` annotations (default 25, `0` for no
+limit). A larger backlog — a first run with an old `since`, a bulk re-tag — is
+paced across successive runs instead of billed in one sitting; the log and the
+heartbeat's `detail` say how many were deferred.
 
 ```sh
 python3 scripts/doctor.py
