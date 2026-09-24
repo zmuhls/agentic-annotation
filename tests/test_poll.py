@@ -505,3 +505,69 @@ class TestBatchCap:
         assert health["processed"] == 2
         assert health["detail"] == "1 deferred to next run"
         assert "1 deferred to the next run" in poll.LOG_FILE.read_text()
+
+
+class TestDailyCeiling:
+    """A dollar ceiling per UTC day, on top of the per-run count cap."""
+
+    ROWS = ["2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00",
+            "2026-09-20T00:02:00+00:00"]
+
+    def _run(self, monkeypatch, stamps, ceiling, price=0.10):
+        rows = _rows(*stamps)
+        monkeypatch.setattr(poll, "MAX_PER_RUN", 0)
+        monkeypatch.setattr(poll, "MAX_DAILY_USD", ceiling)
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        calls = []
+
+        def priced(ann, dry_run=False):
+            calls.append(ann["id"])
+            return {"id": ann["id"], "classified_by": poll.MODEL, "cost_usd": price}
+        monkeypatch.setattr(poll, "process", priced)
+        poll.main()
+        return calls, json.loads(poll.HEALTH_FILE.read_text())
+
+    def test_today_starts_at_zero_and_accumulates(self):
+        assert poll.spent_today() == 0.0
+        poll.record_health("ok", cost_usd=0.10)
+        poll.record_health("ok", cost_usd=0.05)
+        assert poll.spent_today() == 0.15
+
+    def test_an_earlier_day_does_not_count(self):
+        poll.HEALTH_FILE.write_text(json.dumps(
+            {"cost_day": "2000-01-01", "cost_usd_today": 9.0, "cost_usd_total": 9.0}))
+        assert poll.spent_today() == 0.0
+        poll.record_health("ok", cost_usd=0.02)
+        health = json.loads(poll.HEALTH_FILE.read_text())
+        assert health["cost_usd_today"] == 0.02
+        assert health["cost_usd_total"] == 9.02
+
+    def test_zero_disables_the_ceiling(self, monkeypatch):
+        calls, health = self._run(monkeypatch, self.ROWS, 0)
+        assert len(calls) == 3
+        assert health["status"] == "ok"
+
+    def test_stops_once_the_day_is_spent_and_holds_the_cursor(self, monkeypatch):
+        calls, health = self._run(monkeypatch, self.ROWS, 0.15)
+        assert calls == ["a0", "a1"]  # a1 starts under the ceiling, a2 would not
+        assert health["status"] == "budget"
+        assert health["processed"] == 2
+        assert "1 waiting" in health["detail"]
+        cursor = json.loads(poll.CURSOR_FILE.read_text())["search_after"]
+        assert cursor == self.ROWS[1]
+        assert "daily spend ceiling reached" in poll.LOG_FILE.read_text()
+
+    def test_never_splits_a_shared_timestamp(self, monkeypatch):
+        # a0 spends the day, but a1 shares its timestamp and the cursor lands on it
+        stamps = [self.ROWS[0], self.ROWS[0], self.ROWS[1]]
+        calls, _ = self._run(monkeypatch, stamps, 0.10)
+        assert calls == ["a0", "a1"]
+
+    def test_a_spent_day_classifies_nothing_and_logs_nothing(self, monkeypatch):
+        poll.record_health("ok", cost_usd=1.00)
+        calls, health = self._run(monkeypatch, self.ROWS, 1.00)
+        assert calls == []
+        assert health["status"] == "budget"
+        assert "3 waiting" in health["detail"]
+        assert not poll.CURSOR_FILE.exists()
+        assert not poll.LOG_FILE.exists() or "processing" not in poll.LOG_FILE.read_text()

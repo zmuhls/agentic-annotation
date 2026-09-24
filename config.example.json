@@ -4,5 +4,6 @@
   "owner": "an annotator's Hypothesis knowledge system",
   "since": "2024-07-15T00:00:00.000000+00:00",
   "model": "claude-sonnet-5",
-  "max_per_run": 25
+  "max_per_run": 25,
+  "max_daily_usd": 5.0
 }

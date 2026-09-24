@@ -52,6 +52,12 @@ OWNER = CONFIG.get("owner", "this Hypothesis knowledge system")
 # run with an old `since`, a bulk re-tag — is both an open-ended bill and a
 # long window for a sleep SIGTERM. The rest wait for the next run; 0 disables.
 MAX_PER_RUN = int(CONFIG.get("max_per_run", 25) or 0)
+# Dollar ceiling on classification per UTC day. The count cap above bounds one
+# run, but 288 runs a day each within their cap still add up without limit — a
+# re-tag loop or an import script can keep the queue full all day. Once the
+# day's spend reaches this, polls stop classifying (the cursor holds, nothing
+# is skipped) until the date rolls over. 0 disables it.
+MAX_DAILY_USD = float(CONFIG.get("max_daily_usd", 0) or 0)
 
 CURSOR_FILE = ROOT / "data" / "cursor.json"
 SEEN_FILE = ROOT / "data" / "seen.json"
@@ -362,15 +368,35 @@ def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0):
             spent = float(json.loads(HEALTH_FILE.read_text()).get("cost_usd_total") or 0.0)
         except (OSError, ValueError, TypeError):
             spent = 0.0  # a corrupt stamp restarts the tally, never fails a poll
+    now = datetime.now(timezone.utc)
     HEALTH_FILE.write_text(json.dumps({
-        "last_run": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "last_run": now.isoformat(timespec="seconds"),
         "status": status,
         "processed": processed,
         "fallbacks": fallbacks,
         "cost_usd": round(cost_usd, 4),
         "cost_usd_total": round(spent + cost_usd, 4),
+        "cost_day": now.date().isoformat(),
+        "cost_usd_today": round(spent_today() + cost_usd, 4),
         "detail": detail,
     }, indent=2) + "\n")
+
+
+def spent_today():
+    """What classification has cost so far this UTC day, per the heartbeat.
+
+    A stamp from an earlier day, or none at all, means nothing spent yet.
+    """
+    try:
+        health = json.loads(HEALTH_FILE.read_text())
+    except (OSError, ValueError):
+        return 0.0
+    if health.get("cost_day") != datetime.now(timezone.utc).date().isoformat():
+        return 0.0
+    try:
+        return float(health.get("cost_usd_today") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _interrupt_handler(dry_run):
@@ -504,24 +530,49 @@ def poll_once(dry_run):
         if not dry_run:
             record_health("ok")
         return
+    budget_left = MAX_DAILY_USD - spent_today() if MAX_DAILY_USD > 0 else None
+    if budget_left is not None and budget_left <= 0:
+        # The run that hit the ceiling already logged it; the ones after it
+        # classify nothing and say so in the heartbeat, not in 288 log lines.
+        if not dry_run:
+            record_health("budget", detail=f"daily ceiling ${MAX_DAILY_USD:.2f} reached; "
+                                           f"{len(fresh)} waiting")
+        return
     fresh, deferred = cap_batch(fresh, MAX_PER_RUN)
     log(f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
         + (f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})"
            if deferred else ""))
-    fallbacks, spend = 0, 0.0
-    for ann in fresh:
+    fallbacks, spend, done = 0, 0.0, 0
+    for i, ann in enumerate(fresh):
+        # Checked before each call, since a call's price is known only after
+        # it. Ties on `updated` run through for the same reason cap_batch
+        # keeps them together: the cursor would otherwise skip the rest.
+        tied = i and ann["updated"] == fresh[i - 1]["updated"]
+        if budget_left is not None and spend >= budget_left and not tied:
+            break
         record = process(ann, dry_run=dry_run)
+        done += 1
         fallbacks += record.get("classified_by") == "rules-fallback"
         spend += record.get("cost_usd") or 0.0
         if not dry_run:
             seen[ann["id"]] = ann["updated"]
             SEEN_FILE.write_text(json.dumps(seen))
             CURSOR_FILE.write_text(json.dumps({"search_after": ann["updated"]}))
+    held = len(fresh) - done
+    if held:
+        log(f"daily spend ceiling reached (${MAX_DAILY_USD:.2f}); "
+            f"{held} annotation(s) wait for tomorrow (UTC)")
     if not dry_run:
         if MAP_FILE.exists():
             write_overview([json.loads(line) for line in MAP_FILE.open()])
-        record_health("ok", processed=len(fresh), fallbacks=fallbacks, cost_usd=spend,
-                      detail=f"{deferred} deferred to next run" if deferred else "")
+        waiting = deferred + held
+        if held:
+            record_health("budget", processed=done, fallbacks=fallbacks, cost_usd=spend,
+                          detail=f"daily ceiling ${MAX_DAILY_USD:.2f} reached; "
+                                 f"{waiting} waiting")
+        else:
+            record_health("ok", processed=done, fallbacks=fallbacks, cost_usd=spend,
+                          detail=f"{deferred} deferred to next run" if deferred else "")
 
 
 def cap_batch(fresh, limit):

@@ -35,6 +35,7 @@ Fill in `config.json`:
 | `since` | how far back the first backfill reaches (ISO 8601) |
 | `model` | `claude-sonnet-5` unless you have a reason to change it |
 | `max_per_run` | most annotations one poll classifies (default 25; `0` = no limit) |
+| `max_daily_usd` | dollar ceiling on classification per UTC day (default `0` = no limit; the example sets 5) |
 | `claude_bin` | optional — an explicit path to the `claude` binary |
 
 Then draft your taxonomy from your own annotation history:

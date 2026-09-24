@@ -9,6 +9,12 @@ on `main`.
 
 ### Added
 
+- A daily spend ceiling (`max_daily_usd` in `config.json`, default `0` = off).
+  The heartbeat now tracks spend per UTC day (`cost_day`, `cost_usd_today`);
+  once the day reaches the ceiling, polls classify nothing, hold the cursor, and
+  stamp `status: budget`, which `doctor.py` surfaces as a warning. Only the run
+  that hits the ceiling logs it.
+
 - A per-run batch cap (`max_per_run` in `config.json`, default 25). A backlog
   larger than the cap is classified across successive polls rather than in one
   open-ended, serially billed run; annotations sharing a timestamp are never

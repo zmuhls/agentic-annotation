@@ -180,6 +180,14 @@ limit). A larger backlog — a first run with an old `since`, a bulk re-tag — 
 paced across successive runs instead of billed in one sitting; the log and the
 heartbeat's `detail` say how many were deferred.
 
+`max_daily_usd` caps what classification may cost per UTC day (`0`, the
+default, for no ceiling; `config.example.json` sets 5). The count cap bounds
+one run, but a queue that stays full all day would still add up. Once the day's
+spend reaches the ceiling, polls stop classifying and the cursor holds, so the
+waiting annotations are picked up after midnight UTC, none skipped. The
+heartbeat reads `status: budget` and `doctor.py` warns until then. The check
+runs before each call, so a day can overshoot by at most one classification.
+
 ```sh
 python3 scripts/doctor.py
 ok   config: watching acct:you@hypothes.is
