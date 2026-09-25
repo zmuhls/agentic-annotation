@@ -107,7 +107,23 @@ def _age_phrase(delta):
     return f"{minutes // (60 * 24)} days ago"
 
 
-def check_heartbeat(health, now, max_age_seconds):
+def _spend_note(health, now, max_daily_usd):
+    """Lifetime spend, plus today's against the `max_daily_usd` ceiling if set."""
+    parts = []
+    total = health.get("cost_usd_total") or 0
+    if total:
+        parts.append(f"${total:.2f} spent on classification to date")
+    # cost_usd_today belongs to cost_day; a stale day means nothing spent today
+    today = (health.get("cost_usd_today") or 0) \
+        if health.get("cost_day") == now.date().isoformat() else 0
+    if max_daily_usd:
+        parts.append(f"${today:.2f} of ${max_daily_usd:.2f} daily ceiling used today")
+    elif today:
+        parts.append(f"${today:.2f} today")
+    return "".join(f", {p}" for p in parts)
+
+
+def check_heartbeat(health, now, max_age_seconds, max_daily_usd=0):
     """poll.py stamps data/health.json on every completed run."""
     if health is None:
         return Check("warn", "heartbeat",
@@ -133,8 +149,7 @@ def check_heartbeat(health, now, max_age_seconds):
         return Check("warn", "heartbeat",
                      f"last poll {when}, but {fallbacks} annotation(s) took the "
                      "rules fallback — check the classifier (run `claude` and sign in)")
-    spend = health.get("cost_usd_total") or 0
-    spend_note = f", ${spend:.2f} spent on classification to date" if spend else ""
+    spend_note = _spend_note(health, now, max_daily_usd)
     return Check("ok", "heartbeat",
                  f"last poll {when}, {health.get('processed', 0)} processed{spend_note}")
 
@@ -163,7 +178,8 @@ def run_checks(now=None, config=None, launch_agents=LAUNCH_AGENTS,
     units = find_units(launch_agents, systemd_dir)
     max_age = interval_for(units) * MISSED_POLLS_ALLOWED
     return [check_config(config), check_claude(config), *check_units(units),
-            check_heartbeat(load_health(health_file), now, max_age)]
+            check_heartbeat(load_health(health_file), now, max_age,
+                            float(config.get("max_daily_usd", 0) or 0))]
 
 
 def exit_code(checks):

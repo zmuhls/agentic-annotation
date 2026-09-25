@@ -9,6 +9,10 @@ on `main`.
 
 ### Added
 
+- `doctor.py` shows today's classification spend on the heartbeat line, as
+  "$X of $Y daily ceiling used today" when `max_daily_usd` is set, so the
+  budget is visible before it trips rather than only after.
+
 - A daily spend ceiling (`max_daily_usd` in `config.json`, default `0` = off).
   The heartbeat now tracks spend per UTC day (`cost_day`, `cost_usd_today`);
   once the day reaches the ceiling, polls classify nothing, hold the cursor, and

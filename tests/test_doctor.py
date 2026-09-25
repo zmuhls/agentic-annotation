@@ -136,6 +136,22 @@ class TestCheckHeartbeat:
         check = doctor.check_heartbeat(self._health(2), self._now(), 900)
         assert "spent" not in check.detail
 
+    def test_todays_spend_is_shown_against_the_daily_ceiling(self):
+        health = self._health(2, cost_day="2026-09-20", cost_usd_today=1.234)
+        check = doctor.check_heartbeat(health, self._now(), 900, max_daily_usd=5)
+        assert "$1.23 of $5.00 daily ceiling" in check.detail
+
+    def test_yesterdays_spend_does_not_count_against_today(self):
+        health = self._health(2, cost_day="2026-09-19", cost_usd_today=4.9)
+        check = doctor.check_heartbeat(health, self._now(), 900, max_daily_usd=5)
+        assert "$0.00 of $5.00" in check.detail
+
+    def test_todays_spend_without_a_ceiling_is_shown_plainly(self):
+        health = self._health(2, cost_day="2026-09-20", cost_usd_today=0.2)
+        check = doctor.check_heartbeat(health, self._now(), 900)
+        assert "$0.20 today" in check.detail
+        assert "ceiling" not in check.detail
+
 
 class TestLoadHealth:
     def test_missing_file_is_none(self, tmp_path):
