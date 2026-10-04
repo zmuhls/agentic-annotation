@@ -1,17 +1,17 @@
-# Daily maintenance — 2026-09-25
+# Daily maintenance — 2026-10-04
 
-**Health: green.** Watcher loaded (last exit 0); `doctor.py` all `ok`; live `poll.py` exit 0; nothing pending. The only log entries since the last run are DNS blips on 09-24 (13:56 to 18:59 UTC, several short outages); each recovered on its own on the next poll. No sonnet fallbacks. The cursor has not moved because no new annotations have arrived since the last real one.
+**Health: green.** Watcher loaded (last exit 0); `doctor.py` all `ok`, heartbeat fresh; live `poll.py` exit 0; nothing pending. Since the last run the logs show only DNS outages (09-28 for 5 min, 09-29 to 09-30 for about 4 h overnight, 10-01 for about 4.5 h), and each one recovered on its own. No sonnet fallbacks. The cursor holds because no annotations have arrived since 09-21.
 
-**Changed today: spend in `doctor.py`** (cost visibility). The heartbeat line now shows today's spend. With `max_daily_usd` set it reads "$X of $Y daily ceiling used today"; without a ceiling it shows "$X today" only when X is nonzero. A `cost_day` left over from a previous UTC day counts as $0, the same rule `poll.py` uses. Before this, the ceiling from 09-24 could be seen only after it tripped.
+**Changed today: `bootstrap_routing.py` now agrees with `bootstrap_ia.py`** (generalizability). Before, it pointed every group at `inbox`, which left adopters to hand-map each group id to a node in the `ia.md` they had just drafted. INSTALL's troubleshooting table listed "everything lands in inbox" for exactly this reason. Now each group points at its drafted `/general` node, and each busy domain (public ones under `reading`) points at its child node. The script names only node ids that the `ia.md` on disk defines, so running it against someone else's taxonomy gives `inbox` rather than dangling nodes. Both scripts now share one node plan (`bootstrap_ia.plan`) and one node-id reader (`bootstrap_ia.node_ids`). `poll.py` is untouched. README, INSTALL, and CHANGELOG are updated.
 
-**Verify:** 3 new tests; 145 pass; ruff clean; py_compile ok. `poll.py` did not change, so no dry-run classification was needed.
+**Verify:** `bootstrap_routing.py` had no tests before today. 22 new tests cover node-id parsing, the skeleton, a round trip through `build_ia.node_for`, and `main()` with the API mocked. 167 pass; ruff clean; py_compile ok. An in-memory check against live data (nothing written) routed every group to a real node, with zero dangling nodes.
 
 **Dependencies:** none added; runtime is still stdlib-only.
 
-**Push still blocked (human fix, seven days old).** The github.com credential helper in `~/.gitconfig` points to `/usr/local/bin/gh`, which does not exist. **Fifteen commits are waiting on local `main`** (sixteen with this report). Fix: install the GitHub CLI and run `gh auth login`, then `git push origin main`.
+**Push still blocked (human fix, now 16 days old).** `~/.gitconfig` sends github.com credentials through `/usr/local/bin/gh`, and that file does not exist. The `gh` on PATH is an unrelated Python package, not the GitHub CLI. **17 commits are waiting on local `main`** (18 with this report). Fix: install the GitHub CLI (`brew install gh`), run `gh auth login`, then `git push origin main`.
 
 **Next candidates:**
 - **ACTION (human):** repair the `gh` credential helper.
+- MAINTENANCE: `ruff format` would rewrite about 920 lines across 14 files. Deferred: do it as its own commit, with a `ruff format --check` CI step, once the push works.
 - PRO-GRADE: `pyproject` console entry points (turn `scripts/` into a package); type hints on `poll.py`.
-- ADOPTERS: have `bootstrap_ia.py` seed `routing.json` from the nodes it writes.
-- MAINTENANCE: `ruff format` has never been run; adopt it in one commit with a CI check, or drop it.
+- ADOPTERS: one `bootstrap` command that runs both drafters in order.
