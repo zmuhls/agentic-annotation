@@ -9,6 +9,14 @@ on `main`.
 
 ### Added
 
+- `bootstrap_routing.py` drafts a `routing.json` that agrees with the `ia.md`
+  `bootstrap_ia.py` drafted: each group points at its `/general` node and each
+  busy domain at its child node, instead of every group starting at `inbox` and
+  waiting to be hand-mapped. It names only node ids the `ia.md` on disk defines,
+  so a taxonomy that is not yours yields `inbox` rather than dangling nodes.
+  Both scripts share one node plan (`bootstrap_ia.plan`) and one reader of the
+  node ids an `ia.md` defines (`bootstrap_ia.node_ids`).
+
 - `doctor.py` shows today's classification spend on the heartbeat line, as
   "$X of $Y daily ceiling used today" when `max_daily_usd` is set, so the
   budget is visible before it trips rather than only after.

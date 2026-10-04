@@ -54,6 +54,12 @@ def get(path, token, **params):
         return json.loads(resp.read().decode())
 
 
+def recent_annotations(token, user):
+    """The adopter's most recent annotations, enough to rank where they annotate."""
+    return get("search", token, user=user, sort="updated",
+               order="desc", limit=SAMPLE_LIMIT).get("rows", [])
+
+
 def slugify(text, fallback="group"):
     slug = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
     return slug[:40].strip("-") or fallback
@@ -82,43 +88,76 @@ def _unique(slug, taken):
     return candidate
 
 
-def nodes_section(groups, counts):
-    """The one section of ia.md that is nobody else's to write."""
-    lines = [NODES_HEADING, ""]
-    taken = {"inbox", "reading"}
+def busy_domains(seen, parent):
+    """[(domain, hits, node id)] for the domains that earn a child of `parent`."""
+    children = []
+    for domain, hits in seen.most_common(DOMAIN_CHILDREN):
+        if hits < DOMAIN_MIN_HITS:
+            break
+        children.append((domain, hits, f"{parent}/{slugify(domain, 'site')}"))
+    return children
+
+
+def plan(groups, counts):
+    """The drafted group nodes as data, before they are rendered as markdown.
+
+    One entry per group, the public layer excluded (it becomes `reading`).
+    `nodes_section` renders this, and bootstrap_routing.py reads it to point
+    each group and busy domain at the node drafted for it.
+    """
+    entries, taken = [], {"inbox", "reading"}
     for group in sorted(groups, key=lambda g: g.get("name", "")):
         gid = group.get("id")
         if not gid or gid == "__world__":
-            continue  # the public layer becomes `reading`, below
+            continue
         name = group.get("name") or gid
         slug = _unique(slugify(name), taken)
         seen = counts.get(gid, Counter())
-        total = sum(seen.values())
+        entries.append({"id": gid, "name": name, "slug": slug,
+                        "total": sum(seen.values()),
+                        "children": busy_domains(seen, slug)})
+    return entries
+
+
+def nodes_section(groups, counts):
+    """The one section of ia.md that is nobody else's to write."""
+    lines = [NODES_HEADING, ""]
+    for entry in plan(groups, counts):
+        slug, name = entry["slug"], entry["name"]
         lines.append(f"### {slug} — {name}")
         lines.append(
-            f"Annotations in the \"{name}\" group ({total} in a sample of the "
+            f"Annotations in the \"{name}\" group ({entry['total']} in a sample of the "
             f"{SAMPLE_LIMIT} most recent). Replace this line with what the group "
             "is actually for — the classifier reads it.")
-        for domain, hits in seen.most_common(DOMAIN_CHILDREN):
-            if hits < DOMAIN_MIN_HITS:
-                break
-            lines.append(f"- `{slug}/{slugify(domain, 'site')}` — {domain} ({hits})")
+        for domain, hits, node in entry["children"]:
+            lines.append(f"- `{node}` — {domain} ({hits})")
         lines.append(f"- `{slug}/general` — anything in this group the children above miss")
         lines.append("")
 
-    public = counts.get("__world__", Counter())
     lines.append("### reading — public-layer annotation, outside any group")
     lines.append("Reading not tied to a project above.")
-    for domain, hits in public.most_common(DOMAIN_CHILDREN):
-        if hits < DOMAIN_MIN_HITS:
-            break
-        lines.append(f"- `reading/{slugify(domain, 'site')}` — {domain} ({hits})")
+    for domain, hits, node in busy_domains(counts.get("__world__", Counter()), "reading"):
+        lines.append(f"- `{node}` — {domain} ({hits})")
     lines.append("- `reading/general` — everything else worth keeping")
     lines.append("")
     lines.append("### inbox — unplaced")
     lines.append("Holding node when no rule or classification fits; reviewed periodically.")
     lines.append("")
     return "\n".join(lines)
+
+
+def node_ids(text):
+    """Every node id an ia.md defines: its `### ` headings and `- `id`` children.
+
+    Only the nodes section counts; the shared tail has headings and backticked
+    bullets of its own (tag groups, the file map) that are not nodes.
+    """
+    _, sep, rest = text.partition(NODES_HEADING)
+    if not sep:
+        return set()
+    section = rest.split(SHARED_TAIL_HEADING, 1)[0]
+    return (set(re.findall(r"^### (\S+)", section, re.MULTILINE))
+            | set(re.findall(r"^- `([^`]+)`", section, re.MULTILINE)))
 
 
 def split_template(text):
@@ -171,8 +210,7 @@ def main():
     template_text = OUT.read_text()
 
     groups = get("profile/groups", token)
-    annotations = get("search", token, user=user, sort="updated",
-                      order="desc", limit=SAMPLE_LIMIT).get("rows", [])
+    annotations = recent_annotations(token, user)
     text = draft(template_text, user, groups, domains_by_group(annotations))
 
     if "--write" not in sys.argv:

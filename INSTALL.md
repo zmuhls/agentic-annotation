@@ -61,8 +61,13 @@ python3 scripts/bootstrap_routing.py --write
 ```
 
 That writes `routing.json` naming every group you belong to and pointing each at
-`inbox`. Edit those to node ids from the `ia.md` you just wrote and add the
-domains you annotate; `routing.example.json` documents the whole schema and the
+the node `bootstrap_ia.py` drafted for it: the group's `/general` node, and
+for its busiest domains the matching child node. Public-layer domains go
+under `reading`. It names only node ids that the `ia.md` on disk defines, so
+run it after `bootstrap_ia.py`. Anything that `ia.md` lacks (a group you
+pruned, or every group if you skipped the step above) starts at `inbox`, and
+the script counts those for you. Then add your own sites under
+`artifact_domains`; `routing.example.json` documents the whole schema and the
 order the tables are consulted in. Both `config.json` and `routing.json` are
 gitignored.
 
@@ -158,7 +163,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 | Symptom | Cause and fix |
 |---|---|
 | `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in. Placement falls back to the rules until you do. |
-| Everything lands in `inbox` | `routing.json` is missing or its nodes are still the bootstrap defaults. |
+| Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
 | `401` from the API | Bad or revoked token in `config.json`. Not retried, by design. |
 | No log entries at all | Run `python3 scripts/doctor.py`. Either the unit is not loaded, or it names an interpreter that no longer exists — launchd reports that as `78: EX_CONFIG` in `launchctl list` and logs nothing. Re-run `install_agent.py --write --force` with a present interpreter and reload the unit. |

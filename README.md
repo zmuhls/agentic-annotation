@@ -71,8 +71,9 @@ rewrites its nodes section as one node per group you belong to, each group's
 busiest domains as children, and your public reading under `reading`. The
 action-tag vocabulary below it is the same for everyone and carries over
 untouched. Then `bootstrap_routing.py` writes a `routing.json` naming every
-group and pointing each at `inbox`; edit those to node ids from the `ia.md` you
-just wrote, and add the domains you annotate. `routing.example.json` documents the whole
+group and pointing each group, and each of its busiest domains, at the node
+`bootstrap_ia.py` just drafted for it. Anything missing from `ia.md` starts at
+`inbox`. Add your own sites by hand. `routing.example.json` documents the whole
 schema, including the order the tables are consulted in. Skip the file entirely
 and everything lands in `inbox` — the rules are only a prior, and Sonnet still
 places each annotation against `ia.md`.
