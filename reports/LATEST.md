@@ -1,17 +1,17 @@
-# Daily maintenance — 2026-10-04
+# Daily maintenance — 2026-10-05
 
-**Health: green.** Watcher loaded (last exit 0); `doctor.py` all `ok`, heartbeat fresh; live `poll.py` exit 0; nothing pending. Since the last run the logs show only DNS outages (09-28 for 5 min, 09-29 to 09-30 for about 4 h overnight, 10-01 for about 4.5 h), and each one recovered on its own. No sonnet fallbacks. The cursor holds because no annotations have arrived since 09-21.
+**Health: green.** Watcher loaded (last exit 0). `doctor.py` reports all `ok` and a fresh heartbeat. The live `poll.py` and `poll.py --dry-run` both exit 0. The logs show nothing new since the 10-01 DNS outage, which recovered on its own. No sonnet fallbacks. The cursor holds because no annotations have arrived.
 
-**Changed today: `bootstrap_routing.py` now agrees with `bootstrap_ia.py`** (generalizability). Before, it pointed every group at `inbox`, which left adopters to hand-map each group id to a node in the `ia.md` they had just drafted. INSTALL's troubleshooting table listed "everything lands in inbox" for exactly this reason. Now each group points at its drafted `/general` node, and each busy domain (public ones under `reading`) points at its child node. The script names only node ids that the `ia.md` on disk defines, so running it against someone else's taxonomy gives `inbox` rather than dangling nodes. Both scripts now share one node plan (`bootstrap_ia.plan`) and one node-id reader (`bootstrap_ia.node_ids`). `poll.py` is untouched. README, INSTALL, and CHANGELOG are updated.
+**Changed today: one-step bootstrap** (generalizability; it was on the agenda). Adopters used to run `bootstrap_ia.py`, then `bootstrap_routing.py`. Running them in the wrong order sent every group to `inbox`. The new `scripts/bootstrap.py` runs both from one fetch of groups and annotations. It reads node ids from the `ia.md` it is drafting, so the preview already shows where each group and busy domain will land. It writes both files or neither, and the `--force` guard runs before any API call. The token check the three scripts duplicated is now `bootstrap_ia.require_token`. README, INSTALL, and CHANGELOG are updated.
 
-**Verify:** `bootstrap_routing.py` had no tests before today. 22 new tests cover node-id parsing, the skeleton, a round trip through `build_ia.node_for`, and `main()` with the API mocked. 167 pass; ruff clean; py_compile ok. An in-memory check against live data (nothing written) routed every group to a real node, with zero dangling nodes.
+**Verify:** 12 new tests (one API pass, preview writes nothing, refusal before any call, routing never names a node the drafted `ia.md` lacks). 179 pass; ruff clean; py_compile ok. An in-memory check against live data, with nothing written, gave 0 dangling nodes and 0 groups at inbox. `ia.md` and `routing.json` checksums were unchanged afterward.
 
 **Dependencies:** none added; runtime is still stdlib-only.
 
-**Push still blocked (human fix, now 16 days old).** `~/.gitconfig` sends github.com credentials through `/usr/local/bin/gh`, and that file does not exist. The `gh` on PATH is an unrelated Python package, not the GitHub CLI. **17 commits are waiting on local `main`** (18 with this report). Fix: install the GitHub CLI (`brew install gh`), run `gh auth login`, then `git push origin main`.
+**Push still blocked (human fix, now 17 days old).** The cause is the same: `~/.gitconfig` sends github.com credentials only to `/usr/local/bin/gh`, which is missing. **19 commits are waiting on local `main`** (20 with this report). Correction to yesterday: Homebrew is not installed here, so `brew install gh` won't work. Install the GitHub CLI from cli.github.com (pkg installer), run `gh auth login`, then `git push origin main`.
 
 **Next candidates:**
-- **ACTION (human):** repair the `gh` credential helper.
-- MAINTENANCE: `ruff format` would rewrite about 920 lines across 14 files. Deferred: do it as its own commit, with a `ruff format --check` CI step, once the push works.
+- **ACTION (human):** repair the `gh` credential helper (above).
+- MAINTENANCE: `ruff format` as its own commit, plus a `ruff format --check` CI step, once pushes work.
 - PRO-GRADE: `pyproject` console entry points (turn `scripts/` into a package); type hints on `poll.py`.
-- ADOPTERS: one `bootstrap` command that runs both drafters in order.
+- ADOPTERS: a worked example in `docs/examples/` showing a bootstrap preview against fictional groups.
