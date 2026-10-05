@@ -45,6 +45,14 @@ DOMAIN_MIN_HITS = 2
 DOMAIN_CHILDREN = 3
 
 
+def require_token(config):
+    """The configured API token, or exit before any call if it is still a placeholder."""
+    token = config.get("api_token", "")
+    if not token or token.startswith("YOUR-"):
+        sys.exit("no api_token in config.json — copy config.example.json first")
+    return token
+
+
 def get(path, token, **params):
     url = f"{API}/{path}"
     if params:
@@ -198,9 +206,7 @@ def draft(template_text, user, groups, counts):
 
 def main():
     config = load_config()
-    token = config.get("api_token", "")
-    if not token or token.startswith("YOUR-"):
-        sys.exit("no api_token in config.json — copy config.example.json first")
+    token = require_token(config)
     user = config.get("user", "")
     if not user:
         sys.exit("no user in config.json — set it to acct:<you>@hypothes.is")

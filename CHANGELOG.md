@@ -9,6 +9,14 @@ on `main`.
 
 ### Added
 
+- `scripts/bootstrap.py` runs both drafters as one step: one fetch of the
+  adopter's groups and recent annotations, the routing's node ids read off the
+  `ia.md` being drafted rather than the one on disk, and both files written or
+  neither. The preview prints where each group and busy domain will land, so
+  the pair can be checked before anything is written, and the `--force` guard
+  runs before any API call. The token check the three bootstrap scripts share
+  is now one function, `bootstrap_ia.require_token`.
+
 - `bootstrap_routing.py` drafts a `routing.json` that agrees with the `ia.md`
   `bootstrap_ia.py` drafted: each group points at its `/general` node and each
   busy domain at its child node, instead of every group starting at `inbox` and

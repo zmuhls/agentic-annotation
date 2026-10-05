@@ -40,6 +40,7 @@ Because the cursor tracks `updated` (not `created`), **adding a tag like
 | `architecture/emergent-nodes.md` | Sub-nodes Sonnet proposed; review and fold into ia.md |
 | `actions/` | Generated instruction files for tagged editorial directives |
 | `scripts/appconfig.py` | Loads `config.json` / `routing.json` with `.example` fallbacks |
+| `scripts/bootstrap.py` | Runs both drafters below in one step, from one API pass |
 | `scripts/bootstrap_ia.py` | Drafts an `architecture/ia.md` from your own annotation history |
 | `scripts/bootstrap_routing.py` | Drafts a `routing.json` from your own Hypothesis groups |
 | `scripts/fetch_annotations.py` | Full re-pull (backfill) |
@@ -61,22 +62,24 @@ that differs between people:
 cp config.example.json config.json && chmod 600 config.json
 # fill in api_token (hypothes.is → Developer), user (acct:you@hypothes.is), owner
 
-python3 scripts/bootstrap_ia.py --write --force  # your taxonomy, from your own history
-python3 scripts/bootstrap_routing.py --write     # asks /api/profile/groups for your groups
+python3 scripts/bootstrap.py                  # preview where each group will land
+python3 scripts/bootstrap.py --write --force  # your taxonomy and routing, from your own history
 ```
 
 The committed `architecture/ia.md` is the maintainer's taxonomy, and it is what
-the classifier reads on every poll, so replace it first: `bootstrap_ia.py`
-rewrites its nodes section as one node per group you belong to, each group's
-busiest domains as children, and your public reading under `reading`. The
-action-tag vocabulary below it is the same for everyone and carries over
-untouched. Then `bootstrap_routing.py` writes a `routing.json` naming every
-group and pointing each group, and each of its busiest domains, at the node
-`bootstrap_ia.py` just drafted for it. Anything missing from `ia.md` starts at
-`inbox`. Add your own sites by hand. `routing.example.json` documents the whole
-schema, including the order the tables are consulted in. Skip the file entirely
-and everything lands in `inbox` — the rules are only a prior, and Sonnet still
-places each annotation against `ia.md`.
+the classifier reads on every poll, so replace it first. `bootstrap.py` runs two
+drafters in order, from one fetch of your groups and recent annotations, and
+writes both files or neither. The first, `bootstrap_ia.py`, rewrites the nodes
+section as one node per group you belong to, each group's busiest domains as
+children, and your public reading under `reading`. The action-tag vocabulary
+below it is the same for everyone and carries over untouched. Then
+`bootstrap_routing.py` writes a `routing.json` naming every group and pointing
+each group, and each of its busiest domains, at the node `bootstrap_ia.py` just
+drafted for it. Anything missing from `ia.md` starts at `inbox`. Add your own
+sites by hand. `routing.example.json` documents the whole schema, including the
+order the tables are consulted in. Skip the file entirely and everything lands
+in `inbox` — the rules are only a prior, and Sonnet still places each annotation
+against `ia.md`.
 
 ## Driving the system from Hypothesis
 

@@ -72,9 +72,7 @@ def skeleton(groups, counts, known):
 
 def main():
     config = load_config()
-    token = config.get("api_token", "")
-    if not token or token.startswith("YOUR-"):
-        sys.exit("no api_token in config.json — copy config.example.json first")
+    token = bootstrap_ia.require_token(config)
 
     groups = bootstrap_ia.get("profile/groups", token)
     # Without a user there is no sample to rank domains by; groups still route.

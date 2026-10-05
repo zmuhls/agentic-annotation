@@ -38,38 +38,40 @@ Fill in `config.json`:
 | `max_daily_usd` | dollar ceiling on classification per UTC day (default `0` = no limit; the example sets 5) |
 | `claude_bin` | optional — an explicit path to the `claude` binary |
 
-Then draft your taxonomy from your own annotation history:
+Then draft your taxonomy and placement tables from your own annotation history:
 
 ```sh
-python3 scripts/bootstrap_ia.py                # preview
-python3 scripts/bootstrap_ia.py --write --force
+python3 scripts/bootstrap.py                   # preview: each group and busy domain → its node
+python3 scripts/bootstrap.py --write --force   # writes architecture/ia.md and routing.json
 ```
 
-`architecture/ia.md` ships with the maintainer's taxonomy, and it is the file the
-classifier reads on every poll — leaving it in place would sort your annotations
-into someone else's projects. The script replaces its nodes section with one
-top-level node per group you belong to, each group's busiest domains as children,
-your public-layer reading under `reading`, and `inbox`. The action-tag vocabulary
-below it is the same for everyone (`poll.py` and `build_ia.py` implement it), so
-it carries over untouched. Then edit: the node descriptions are what the model
-reasons over, and the generated ones are placeholders.
+That one command runs the two drafters described below, in order, from a single
+fetch of your groups and recent annotations. It reads the routing's node ids off
+the `ia.md` it is drafting rather than the one on disk, so the two files agree
+even in the preview, and it writes both or neither. Run the two scripts on their
+own for a full-text preview of either file, or to redraft one after editing the
+other.
 
-Now draft your placement tables from the same groups:
+**The taxonomy (`bootstrap_ia.py`).** `architecture/ia.md` ships with the
+maintainer's taxonomy, and it is the file the classifier reads on every poll —
+leaving it in place would sort your annotations into someone else's projects.
+The script replaces its nodes section with one top-level node per group you
+belong to, each group's busiest domains as children, your public-layer reading
+under `reading`, and `inbox`. The action-tag vocabulary below it is the same for
+everyone (`poll.py` and `build_ia.py` implement it), so it carries over
+untouched. Then edit: the node descriptions are what the model reasons over, and
+the generated ones are placeholders.
 
-```sh
-python3 scripts/bootstrap_routing.py --write
-```
-
-That writes `routing.json` naming every group you belong to and pointing each at
-the node `bootstrap_ia.py` drafted for it: the group's `/general` node, and
-for its busiest domains the matching child node. Public-layer domains go
-under `reading`. It names only node ids that the `ia.md` on disk defines, so
-run it after `bootstrap_ia.py`. Anything that `ia.md` lacks (a group you
-pruned, or every group if you skipped the step above) starts at `inbox`, and
-the script counts those for you. Then add your own sites under
-`artifact_domains`; `routing.example.json` documents the whole schema and the
-order the tables are consulted in. Both `config.json` and `routing.json` are
-gitignored.
+**The placement tables (`bootstrap_routing.py --write`).** It writes
+`routing.json` naming every group you belong to and pointing each at the node
+`bootstrap_ia.py` drafted for it: the group's `/general` node, and for its
+busiest domains the matching child node. Public-layer domains go under
+`reading`. It names only node ids that the `ia.md` on disk defines, so run it
+after `bootstrap_ia.py`. Anything that `ia.md` lacks (a group you pruned, or
+every group if you skipped the step above) starts at `inbox`, and the script
+counts those for you. Then add your own sites under `artifact_domains`;
+`routing.example.json` documents the whole schema and the order the tables are
+consulted in. Both `config.json` and `routing.json` are gitignored.
 
 ## 3. Backfill and sort
 
@@ -163,7 +165,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 | Symptom | Cause and fix |
 |---|---|
 | `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in. Placement falls back to the rules until you do. |
-| Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`. |
+| Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`, or `bootstrap.py --write --force` to redraft both. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
 | `401` from the API | Bad or revoked token in `config.json`. Not retried, by design. |
 | No log entries at all | Run `python3 scripts/doctor.py`. Either the unit is not loaded, or it names an interpreter that no longer exists — launchd reports that as `78: EX_CONFIG` in `launchctl list` and logs nothing. Re-run `install_agent.py --write --force` with a present interpreter and reload the unit. |
