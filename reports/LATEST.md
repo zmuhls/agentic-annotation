@@ -1,17 +1,18 @@
-# Daily maintenance — 2026-10-05
+# Daily maintenance — 2026-10-06
 
-**Health: green.** Watcher loaded (last exit 0). `doctor.py` reports all `ok` and a fresh heartbeat. The live `poll.py` and `poll.py --dry-run` both exit 0. The logs show nothing new since the 10-01 DNS outage, which recovered on its own. No sonnet fallbacks. The cursor holds because no annotations have arrived.
+**Health: green.** Watcher loaded (last exit 0). `doctor.py` reports all `ok`. The live `poll.py` and `poll.py --dry-run` both exit 0. The logs show nothing since the 10-01 DNS outage recovered. No sonnet fallbacks. The cursor holds because no annotations have arrived.
 
-**Changed today: one-step bootstrap** (generalizability; it was on the agenda). Adopters used to run `bootstrap_ia.py`, then `bootstrap_routing.py`. Running them in the wrong order sent every group to `inbox`. The new `scripts/bootstrap.py` runs both from one fetch of groups and annotations. It reads node ids from the `ia.md` it is drafting, so the preview already shows where each group and busy domain will land. It writes both files or neither, and the `--force` guard runs before any API call. The token check the three scripts duplicated is now `bootstrap_ia.require_token`. README, INSTALL, and CHANGELOG are updated.
+**Changed today: the classifier prompt no longer names the author's node** (generalizability). Its "new child" example was a hardcoded node from one person's taxonomy, and every adopter's model read it on every call. It now uses the first child node in the reader's own `ia.md`, or `<existing-node>/<child>` if there is none. This matches what `bootstrap_ia.draft` already does for the `ia.md` preamble. `bootstrap_ia.nodes_of` is now the shared reader of the nodes section.
 
-**Verify:** 12 new tests (one API pass, preview writes nothing, refusal before any call, routing never names a node the drafted `ia.md` lacks). 179 pass; ruff clean; py_compile ok. An in-memory check against live data, with nothing written, gave 0 dangling nodes and 0 groups at inbox. `ia.md` and `routing.json` checksums were unchanged afterward.
+**Verify:** 2 new tests; 181 pass; ruff clean; py_compile ok. One live dry-run classification ran with the poll lock held and the cursor rewound ($0.23). It placed the annotation at the same node Sonnet chose originally, and the prompt showed the derived example. Cursor, seen, and map checksums were unchanged afterward, and no action files were written.
 
 **Dependencies:** none added; runtime is still stdlib-only.
 
-**Push still blocked (human fix, now 17 days old).** The cause is the same: `~/.gitconfig` sends github.com credentials only to `/usr/local/bin/gh`, which is missing. **19 commits are waiting on local `main`** (20 with this report). Correction to yesterday: Homebrew is not installed here, so `brew install gh` won't work. Install the GitHub CLI from cli.github.com (pkg installer), run `gh auth login`, then `git push origin main`.
+**Push still blocked (human fix, now 18 days old).** `~/.gitconfig` sends github.com credentials only to `/usr/local/bin/gh`, which is missing. The `gh` on PATH is an unrelated Python script, not the GitHub CLI. **22 commits are waiting on local `main`.** Install the GitHub CLI from cli.github.com (pkg installer), run `gh auth login`, then `git push origin main`.
 
 **Next candidates:**
 - **ACTION (human):** repair the `gh` credential helper (above).
-- MAINTENANCE: `ruff format` as its own commit, plus a `ruff format --check` CI step, once pushes work.
+- ROBUSTNESS (low odds): `/api/search` compares `search_after` at millisecond precision (truncated; probed today). `cap_batch` and the budget loop treat only identical microsecond stamps as ties. A batch cut between two annotations in the same millisecond would skip the second. Fix: re-read from the cursor's millisecond start and dedupe through `seen.json`.
+- MAINTENANCE: `ruff format` as its own commit, plus a `ruff format --check` CI step, once pushes work. Add Python 3.9 (the macOS system interpreter the watcher runs on) to the CI matrix.
 - PRO-GRADE: `pyproject` console entry points (turn `scripts/` into a package); type hints on `poll.py`.
 - ADOPTERS: a worked example in `docs/examples/` showing a bootstrap preview against fictional groups.
