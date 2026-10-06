@@ -30,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from appconfig import load_config  # noqa: E402
+from bootstrap_ia import first_child, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
     group_name_for,
@@ -176,6 +177,17 @@ def siblings_at(node, exclude_id, limit=6):
     } for r in sibs[:limit]]
 
 
+def new_node_example(ia):
+    """A deeper-child example built from a node in the reader's own ia.md.
+
+    A fixed example here named one author's node on every call, and in anyone
+    else's taxonomy that node does not exist. bootstrap_ia.draft rewrites the
+    matching example in ia.md's preamble for the same reason.
+    """
+    child = first_child(nodes_of(ia))
+    return f"{child}/<child>" if child else "<existing-node>/<child>"
+
+
 def classify_prompt(ann):
     ia = IA_FILE.read_text()
     group = group_name_for(ann)
@@ -207,7 +219,7 @@ def classify_prompt(ann):
 
 Do three things:
 
-1. Assign the annotation to exactly one node. Prefer an existing node id from the architecture. You may propose one new child under an existing node (e.g. "dissertation/sources/platform-studies") when a cluster clearly deserves it; set "new_node" true in that case. Use "inbox" only as a last resort.
+1. Assign the annotation to exactly one node. Prefer an existing node id from the architecture. You may propose one new child under an existing node (e.g. "{new_node_example(ia)}") when a cluster clearly deserves it; set "new_node" true in that case. Use "inbox" only as a last resort.
 
 2. In one sentence, state the annotation's role within the broader architecture — what it contributes to or connects with at that node.
 

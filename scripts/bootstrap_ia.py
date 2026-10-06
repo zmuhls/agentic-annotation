@@ -154,16 +154,19 @@ def nodes_section(groups, counts):
     return "\n".join(lines)
 
 
-def node_ids(text):
-    """Every node id an ia.md defines: its `### ` headings and `- `id`` children.
+def nodes_of(text):
+    """The nodes section of an ia.md, or '' if it has none.
 
-    Only the nodes section counts; the shared tail has headings and backticked
-    bullets of its own (tag groups, the file map) that are not nodes.
+    Only this section defines nodes; the shared tail has headings and
+    backticked bullets of its own (tag groups, the file map) that are not nodes.
     """
     _, sep, rest = text.partition(NODES_HEADING)
-    if not sep:
-        return set()
-    section = rest.split(SHARED_TAIL_HEADING, 1)[0]
+    return rest.split(SHARED_TAIL_HEADING, 1)[0] if sep else ""
+
+
+def node_ids(text):
+    """Every node id an ia.md defines: its `### ` headings and `- `id`` children."""
+    section = nodes_of(text)
     return (set(re.findall(r"^### (\S+)", section, re.MULTILINE))
             | set(re.findall(r"^- `([^`]+)`", section, re.MULTILINE)))
 

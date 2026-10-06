@@ -571,3 +571,27 @@ class TestDailyCeiling:
         assert "3 waiting" in health["detail"]
         assert not poll.CURSOR_FILE.exists()
         assert not poll.LOG_FILE.exists() or "processing" not in poll.LOG_FILE.read_text()
+
+
+@pytest.mark.usefixtures("routing")
+class TestClassifyPrompt:
+    """The prompt is read on every call, so it may only speak in the reader's own nodes."""
+
+    TAIL = "## Action vocabulary\n\n- `architecture/map.jsonl` — not a node\n"
+
+    def _prompt(self, monkeypatch, tmp_path, nodes):
+        ia = tmp_path / "ia.md"
+        ia.write_text(f"# IA\n\n## Nodes\n\n{nodes}\n{self.TAIL}")
+        monkeypatch.setattr(poll, "IA_FILE", ia)
+        return poll.classify_prompt(sample_annotation())
+
+    def test_new_node_example_is_drawn_from_the_live_taxonomy(self, monkeypatch, tmp_path):
+        prompt = self._prompt(monkeypatch, tmp_path,
+                              "### garden — plants\n\n- `garden/roses` — roses\n")
+        assert '(e.g. "garden/roses/<child>")' in prompt
+        assert "platform-studies" not in prompt
+
+    def test_a_taxonomy_without_children_gets_a_neutral_example(self, monkeypatch, tmp_path):
+        prompt = self._prompt(monkeypatch, tmp_path, "### garden — plants\n")
+        assert '(e.g. "<existing-node>/<child>")' in prompt
+        assert "architecture/map.jsonl/<child>" not in prompt  # the tail is not a node

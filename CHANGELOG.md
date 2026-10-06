@@ -63,6 +63,10 @@ on `main`.
 
 ### Changed
 
+- The classifier prompt draws its "new child" example from the first child node
+  in your own `ia.md` (`<existing-node>/<child>` if it has none). It used to
+  name one author's node on every call, a node most other taxonomies lack.
+  `bootstrap_ia.nodes_of` is the shared reader of an `ia.md`'s nodes section.
 - `scripts/install_agent.py --write` refuses an interpreter that does not exist
   (`--allow-missing-python` covers generating a unit for another host). An
   uninstalled interpreter had silently stopped the watcher for four days.
