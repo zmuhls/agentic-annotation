@@ -483,12 +483,12 @@ class TestBatchCap:
         assert [r["id"] for r in kept] == ["a0", "a1"]
         assert deferred == 2
 
-    def test_never_splits_a_shared_timestamp(self):
-        # the cursor would land on t2 and the next search starts after it
+    def test_a_shared_timestamp_is_cut_like_any_other(self):
+        # safe because the next fetch re-reads the cursor's millisecond
         rows = _rows("t1", "t2", "t2", "t3")
         kept, deferred = poll.cap_batch(rows, 2)
-        assert [r["id"] for r in kept] == ["a0", "a1", "a2"]
-        assert deferred == 1
+        assert [r["id"] for r in kept] == ["a0", "a1"]
+        assert deferred == 2
 
     def test_the_cursor_stops_at_the_last_processed_row(self, monkeypatch):
         rows = _rows("2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00",
@@ -557,11 +557,11 @@ class TestDailyCeiling:
         assert cursor == self.ROWS[1]
         assert "daily spend ceiling reached" in poll.LOG_FILE.read_text()
 
-    def test_never_splits_a_shared_timestamp(self, monkeypatch):
-        # a0 spends the day, but a1 shares its timestamp and the cursor lands on it
+    def test_a_shared_timestamp_does_not_overshoot_the_ceiling(self, monkeypatch):
+        # a1 waits for the next run, which re-reads the cursor's millisecond
         stamps = [self.ROWS[0], self.ROWS[0], self.ROWS[1]]
         calls, _ = self._run(monkeypatch, stamps, 0.10)
-        assert calls == ["a0", "a1"]
+        assert calls == ["a0"]
 
     def test_a_spent_day_classifies_nothing_and_logs_nothing(self, monkeypatch):
         poll.record_health("ok", cost_usd=1.00)
@@ -571,6 +571,86 @@ class TestDailyCeiling:
         assert "3 waiting" in health["detail"]
         assert not poll.CURSOR_FILE.exists()
         assert not poll.LOG_FILE.exists() or "processing" not in poll.LOG_FILE.read_text()
+
+
+class _FakeSearch:
+    """/api/search as probed live: `updated` carries microseconds, but the sort
+    and `search_after` both work on the stamp truncated to milliseconds, and a
+    page holds only rows strictly after it. Ties keep insertion order."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = 0
+
+    @staticmethod
+    def _ms(stamp):
+        return stamp[:23]  # YYYY-MM-DDTHH:MM:SS.mmm
+
+    def __call__(self, params, **kw):
+        self.calls += 1
+        after = self._ms(params["search_after"])
+        hits = sorted((r for r in self.rows if self._ms(r["updated"]) > after),
+                      key=lambda r: self._ms(r["updated"]))
+        return {"rows": hits[:params["limit"]]}
+
+
+class TestMillisecondCursor:
+    """A cut inside one millisecond must not strand the rest of that millisecond."""
+
+    STAMPS = ["2026-09-20T00:00:00.100000+00:00",
+              "2026-09-20T00:00:01.500100+00:00",  # these two share a millisecond
+              "2026-09-20T00:00:01.500900+00:00",
+              "2026-09-20T00:00:02.000000+00:00"]
+
+    def test_ms_before_steps_back_one_millisecond_from_the_truncated_stamp(self):
+        assert (poll.ms_before("2026-09-20T00:00:01.500900+00:00")
+                == "2026-09-20T00:00:01.499000+00:00")
+
+    def test_ms_before_crosses_a_second_boundary(self):
+        assert (poll.ms_before("2026-09-20T00:00:00.000500+00:00")
+                == "2026-09-19T23:59:59.999000+00:00")
+
+    def test_ms_before_passes_an_unparseable_cursor_through(self):
+        assert poll.ms_before(None) is None
+        assert poll.ms_before("not-a-stamp") == "not-a-stamp"
+
+    def test_a_page_boundary_inside_one_millisecond_loses_nothing(self, monkeypatch):
+        monkeypatch.setattr(poll, "search", _FakeSearch(_rows(*self.STAMPS)))
+        rows = poll.fetch_new("2026-09-19T00:00:00.000000+00:00", page_size=2)
+        assert [r["id"] for r in rows] == ["a0", "a1", "a2", "a3"]
+
+    def test_a_batch_cut_inside_one_millisecond_is_picked_up_next_run(self, monkeypatch):
+        monkeypatch.setattr(poll, "search", _FakeSearch(_rows(*self.STAMPS)))
+        monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG,
+                                             "since": "2026-09-19T00:00:00.000000+00:00"})
+        monkeypatch.setattr(poll, "MAX_PER_RUN", 2)
+        monkeypatch.setattr(poll, "MAX_DAILY_USD", 0)
+        done = []
+        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: (
+            done.append(ann["id"]) or {"id": ann["id"], "classified_by": poll.MODEL}))
+        for _ in range(3):
+            poll.main()
+        assert done == ["a0", "a1", "a2", "a3"]
+
+    def test_an_idle_poll_asks_once_and_reclassifies_nothing(self, monkeypatch):
+        fake = _FakeSearch(_rows(*self.STAMPS))
+        monkeypatch.setattr(poll, "search", fake)
+        poll.CURSOR_FILE.write_text(json.dumps({"search_after": self.STAMPS[3]}))
+        poll.SEEN_FILE.write_text(json.dumps({"a3": self.STAMPS[3]}))
+        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: pytest.fail(ann["id"]))
+        poll.main()
+        assert fake.calls == 1  # the re-read cursor row is a short page
+        assert json.loads(poll.HEALTH_FILE.read_text())["status"] == "ok"
+
+    def test_a_millisecond_fuller_than_a_page_still_ends(self, monkeypatch):
+        # the API offers no tiebreaker, so past page_size rows in one
+        # millisecond only the strict cursor moves on (a2 is the known cost)
+        same = "2026-09-20T00:00:01.500"
+        rows = _rows(same + "100+00:00", same + "200+00:00", same + "300+00:00",
+                     "2026-09-20T00:00:02.000000+00:00")
+        monkeypatch.setattr(poll, "search", _FakeSearch(rows))
+        got = poll.fetch_new("2026-09-19T00:00:00.000000+00:00", page_size=2)
+        assert [r["id"] for r in got] == ["a0", "a1", "a3"]
 
 
 @pytest.mark.usefixtures("routing")

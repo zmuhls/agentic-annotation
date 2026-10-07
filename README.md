@@ -23,7 +23,10 @@ Hypothesis API ──(poll every 5 min, cursor on `updated`)──▶ scripts/po
 Hypothesis offers no webhooks, so a launchd agent polls every 5 minutes —
 the closest thing to "runs every single time there is a new annotation."
 Because the cursor tracks `updated` (not `created`), **adding a tag like
-`revision` to an old annotation also triggers the routine**.
+`revision` to an old annotation also triggers the routine**. The API compares
+the cursor only to the millisecond, so each search re-reads the cursor's own
+millisecond and `data/seen.json` skips what is already classified; a run cut
+short anywhere resumes without losing an annotation.
 
 ## Layout
 

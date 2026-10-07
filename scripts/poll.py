@@ -24,7 +24,7 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -142,21 +142,49 @@ def search(params, attempts=3, backoff=5):
         time.sleep(backoff * (2 ** attempt))
 
 
-def fetch_new(cursor):
-    rows, search_after = [], cursor
+def ms_before(stamp):
+    """The `search_after` that re-reads the whole millisecond `stamp` falls in.
+
+    `updated` carries microseconds, but /api/search truncates `search_after` to
+    milliseconds and returns only rows strictly after that (probed live). A
+    search from the cursor itself therefore drops every other annotation in the
+    cursor's millisecond, so a batch cap, a spend stop, or a page boundary that
+    landed inside one stranded the rest of it. Starting a millisecond earlier
+    re-reads it, and `seen` drops the rows already done. A stamp that does not
+    parse (no cursor yet, an odd `since`) passes through unchanged.
+    """
+    try:
+        t = datetime.fromisoformat(stamp)
+    except (TypeError, ValueError):
+        return stamp
+    t = t.replace(microsecond=t.microsecond // 1000 * 1000) - timedelta(milliseconds=1)
+    return t.isoformat(timespec="microseconds")
+
+
+def fetch_new(cursor, page_size=200):
+    """Annotations updated in the cursor's millisecond or later, oldest first.
+
+    After a full page the next one restarts a millisecond before its last row
+    (see ms_before), and the overlap is dropped by id. Only a full page that
+    brings nothing new — more than `page_size` rows in one millisecond — falls
+    back to the strict cursor, the one way past it.
+    """
+    rows, ids, search_after = [], set(), ms_before(cursor)
     while True:
         page = search({
             "user": CONFIG["user"],
             "sort": "updated",
             "order": "asc",
             "search_after": search_after,
-            "limit": 200,
-        })
-        batch = page.get("rows", [])
-        if not batch:
-            return rows
+            "limit": page_size,
+        }).get("rows", [])
+        batch = [r for r in page if r["id"] not in ids]
         rows.extend(batch)
-        search_after = batch[-1]["updated"]
+        ids.update(r["id"] for r in batch)
+        if len(page) < page_size:
+            return rows
+        last = page[-1]["updated"]
+        search_after = ms_before(last) if batch else last
 
 
 def claude_bin():
@@ -555,12 +583,9 @@ def poll_once(dry_run):
         + (f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})"
            if deferred else ""))
     fallbacks, spend, done = 0, 0.0, 0
-    for i, ann in enumerate(fresh):
-        # Checked before each call, since a call's price is known only after
-        # it. Ties on `updated` run through for the same reason cap_batch
-        # keeps them together: the cursor would otherwise skip the rest.
-        tied = i and ann["updated"] == fresh[i - 1]["updated"]
-        if budget_left is not None and spend >= budget_left and not tied:
+    for ann in fresh:
+        # Checked before each call, since a call's price is known only after it.
+        if budget_left is not None and spend >= budget_left:
             break
         record = process(ann, dry_run=dry_run)
         done += 1
@@ -590,16 +615,13 @@ def poll_once(dry_run):
 def cap_batch(fresh, limit):
     """Split `fresh` (ascending by `updated`) into this run's share and a count left over.
 
-    The cursor advances to the last processed `updated`, and the next search
-    starts strictly after it — so a cut between two annotations sharing one
-    timestamp would silently skip the second. Ties stay together instead.
+    A cut between two annotations sharing a timestamp is safe: the next fetch
+    re-reads the cursor's millisecond (see ms_before) and `seen` skips the
+    first.
     """
     if limit <= 0 or len(fresh) <= limit:
         return fresh, 0
-    end = limit
-    while end < len(fresh) and fresh[end]["updated"] == fresh[end - 1]["updated"]:
-        end += 1
-    return fresh[:end], len(fresh) - end
+    return fresh[:limit], len(fresh) - limit
 
 
 if __name__ == "__main__":

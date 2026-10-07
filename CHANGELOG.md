@@ -37,8 +37,7 @@ on `main`.
 
 - A per-run batch cap (`max_per_run` in `config.json`, default 25). A backlog
   larger than the cap is classified across successive polls rather than in one
-  open-ended, serially billed run; annotations sharing a timestamp are never
-  split across the cut, since the next search starts strictly after the cursor.
+  open-ended, serially billed run.
 
 - `scripts/doctor.py`: a one-shot health check (config keys, `claude` binary,
   a scheduler unit for *this* checkout whose interpreter still exists,
@@ -72,6 +71,17 @@ on `main`.
   uninstalled interpreter had silently stopped the watcher for four days.
 - `log()` flushes stdout, so a killed run does not lose the buffered lines that
   explain the kill.
+
+### Fixed
+
+- Annotations stamped in the same millisecond as the cursor are no longer
+  skipped. `/api/search` truncates `search_after` to milliseconds and returns
+  rows strictly after it, while `updated` carries microseconds, so a batch cap,
+  a spend stop, or a 200-row page boundary that fell inside one millisecond
+  stranded the rest of it for good. Each search now starts one millisecond
+  early (`poll.ms_before`) and `seen.json` drops the rows already done. That
+  makes any cut safe, so `max_per_run` and `max_daily_usd` no longer stretch to
+  keep identical timestamps together. An idle poll is still one request.
 
 ## 2026-08-13
 
