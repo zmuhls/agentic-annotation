@@ -1,56 +1,51 @@
 #!/usr/bin/env python3
 """Full pull of Hypothesis annotations for the configured user.
 
-Paginates /api/search with search_after on created (ascending) and writes
-one annotation per line to data/annotations.jsonl. Safe to re-run: it
-overwrites the file with a fresh complete pull.
+Pages /api/search on `created` (ascending) from `since` in config.json and
+writes one annotation per line to data/annotations.jsonl. Safe to re-run: it
+replaces the file with a fresh complete pull, and only once every page is in,
+so a failed pull leaves the previous file as it was.
+
+Paging and retries are poll.py's (`fetch_new`, `search`): the api truncates
+`search_after` to milliseconds, so a plain last-row cursor skipped annotations
+created in the same millisecond as a page's last row, and one dropped
+connection ended the whole pull. With no `since` it pulls the entire history.
 """
 
 import json
+import os
 import sys
-import urllib.parse
-import urllib.request
+import urllib.error
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import poll  # noqa: E402
+from bootstrap_ia import require_token  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG = json.loads((ROOT / "config.json").read_text())
-
-API = "https://api.hypothes.is/api"
-TOKEN = CONFIG["api_token"]
-USER = CONFIG["user"]
-SINCE = CONFIG.get("since", "2024-07-15T00:00:00.000000+00:00")
 OUT = ROOT / "data" / "annotations.jsonl"
-
-
-def search(params):
-    url = f"{API}/search?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+# Before Hypothesis existed, so "no `since`" means everything.
+EPOCH = "1970-01-01T00:00:00.000000+00:00"
 
 
 def main():
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    rows = []
-    search_after = SINCE
-    while True:
-        page = search({
-            "user": USER,
-            "sort": "created",
-            "order": "asc",
-            "search_after": search_after,
-            "limit": 200,
-        })
-        batch = page.get("rows", [])
-        if not batch:
-            break
-        rows.extend(batch)
-        search_after = batch[-1]["created"]
-        print(f"fetched {len(rows)} (through {search_after})", file=sys.stderr)
+    require_token(poll.CONFIG)
+    if not poll.CONFIG.get("user"):
+        sys.exit("no user in config.json — set it to acct:<you>@hypothes.is")
+    since = poll.CONFIG.get("since") or EPOCH
+    try:
+        rows = poll.fetch_new(since, key="created")
+    except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
+        sys.exit(f"hypothesis api returned {e.code} {e.reason}; {OUT.name} left as it was")
+    except OSError as e:
+        sys.exit(f"hypothesis api unreachable ({e}); {OUT.name} left as it was")
 
-    with OUT.open("w") as f:
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    tmp = OUT.with_name(OUT.name + ".tmp")
+    with tmp.open("w") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
+    os.replace(tmp, OUT)  # atomic: a reader never sees half a pull
     print(f"wrote {len(rows)} annotations to {OUT}")
 
 

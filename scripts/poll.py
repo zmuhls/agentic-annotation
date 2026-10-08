@@ -161,19 +161,20 @@ def ms_before(stamp):
     return t.isoformat(timespec="microseconds")
 
 
-def fetch_new(cursor, page_size=200):
-    """Annotations updated in the cursor's millisecond or later, oldest first.
+def fetch_new(cursor, page_size=200, key="updated"):
+    """Annotations whose `key` stamp is in the cursor's millisecond or later, oldest first.
 
     After a full page the next one restarts a millisecond before its last row
     (see ms_before), and the overlap is dropped by id. Only a full page that
     brings nothing new — more than `page_size` rows in one millisecond — falls
-    back to the strict cursor, the one way past it.
+    back to the strict cursor, the one way past it. The watcher pages on
+    `updated`; the backfill (fetch_annotations.py) pages on `created`.
     """
     rows, ids, search_after = [], set(), ms_before(cursor)
     while True:
         page = search({
             "user": CONFIG["user"],
-            "sort": "updated",
+            "sort": key,
             "order": "asc",
             "search_after": search_after,
             "limit": page_size,
@@ -183,7 +184,7 @@ def fetch_new(cursor, page_size=200):
         ids.update(r["id"] for r in batch)
         if len(page) < page_size:
             return rows
-        last = page[-1]["updated"]
+        last = page[-1][key]
         search_after = ms_before(last) if batch else last
 
 

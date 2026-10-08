@@ -82,6 +82,14 @@ on `main`.
   early (`poll.ms_before`) and `seen.json` drops the rows already done. That
   makes any cut safe, so `max_per_run` and `max_daily_usd` no longer stretch to
   keep identical timestamps together. An idle poll is still one request.
+- The backfill (`scripts/fetch_annotations.py`) had the same skip on `created`
+  (probed live: that sort truncates to milliseconds too) and gave up on the
+  first dropped connection. It now pages through `poll.fetch_new(...,
+  key="created")` and retries through `poll.search`. A failed pull exits with
+  the reason and leaves the previous `data/annotations.jsonl` intact, and the
+  new file replaces the old one in a single rename. It also no longer needs a
+  `config.json` just to be imported (tests and CI fall back to the example),
+  and without a `since` it pulls the whole history instead of a hardcoded date.
 
 ## 2026-08-13
 

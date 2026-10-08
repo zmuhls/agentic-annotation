@@ -574,9 +574,10 @@ class TestDailyCeiling:
 
 
 class _FakeSearch:
-    """/api/search as probed live: `updated` carries microseconds, but the sort
-    and `search_after` both work on the stamp truncated to milliseconds, and a
-    page holds only rows strictly after it. Ties keep insertion order."""
+    """/api/search as probed live: `updated` and `created` carry microseconds,
+    but the sort and `search_after` both work on the stamp truncated to
+    milliseconds, and a page holds only rows strictly after it. Ties keep
+    insertion order."""
 
     def __init__(self, rows):
         self.rows = rows
@@ -588,9 +589,9 @@ class _FakeSearch:
 
     def __call__(self, params, **kw):
         self.calls += 1
-        after = self._ms(params["search_after"])
-        hits = sorted((r for r in self.rows if self._ms(r["updated"]) > after),
-                      key=lambda r: self._ms(r["updated"]))
+        key, after = params["sort"], self._ms(params["search_after"])
+        hits = sorted((r for r in self.rows if self._ms(r[key]) > after),
+                      key=lambda r: self._ms(r[key]))
         return {"rows": hits[:params["limit"]]}
 
 
