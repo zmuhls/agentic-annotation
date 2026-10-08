@@ -544,12 +544,33 @@ def main():
         sys.exit(1)
 
 
+def start_cursor(dry_run):
+    """Where a poll with no saved cursor starts: `since`, or else this moment.
+
+    With neither, /api/search was asked for search_after=None, which it answers
+    400 (probed live), so a config without `since` failed every run for good.
+    A missing `since` now means "watch from the first run on": classification is
+    billed, so the watcher never reaches into history unasked (the backfill does
+    that, for free). The moment is saved at once, or each idle run would restart
+    from its own now and drop whatever arrived between polls.
+    """
+    since = CONFIG.get("since")
+    if since:
+        return since
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    if not dry_run:
+        CURSOR_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CURSOR_FILE.write_text(json.dumps({"search_after": now}))
+        log("no `since` in config.json; watching annotations made from now on")
+    return now
+
+
 def poll_once(dry_run):
     for path in (LOG_FILE, STDOUT_LOG):
         trim_log(path)
 
     cursor = json.loads(CURSOR_FILE.read_text())["search_after"] \
-        if CURSOR_FILE.exists() else CONFIG.get("since")
+        if CURSOR_FILE.exists() else start_cursor(dry_run)
     seen = json.loads(SEEN_FILE.read_text()) if SEEN_FILE.exists() else {}
 
     try:

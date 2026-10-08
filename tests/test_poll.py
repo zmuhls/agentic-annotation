@@ -654,6 +654,40 @@ class TestMillisecondCursor:
         assert [r["id"] for r in got] == ["a0", "a1", "a3"]
 
 
+class TestFirstRunCursor:
+    """With no saved cursor and no `since`, the api would be asked for
+    search_after=None, which it rejects (400) on every run."""
+
+    @pytest.fixture
+    def asked(self, monkeypatch):
+        params = []
+        monkeypatch.setattr(poll, "search", lambda p, **kw: params.append(p) or {"rows": []})
+        monkeypatch.setattr(poll, "CONFIG", {k: v for k, v in poll.CONFIG.items()
+                                             if k != "since"})
+        return params
+
+    def test_no_since_watches_from_the_first_run_and_saves_that_moment(self, asked):
+        before = poll.datetime.now(poll.timezone.utc).isoformat(timespec="microseconds")
+        poll.main()
+        saved = json.loads(poll.CURSOR_FILE.read_text())["search_after"]
+        assert saved >= before
+        assert asked[0]["search_after"] == poll.ms_before(saved)
+        poll.main()  # an idle second run starts where the first did, not at its own now
+        assert asked[1]["search_after"] == poll.ms_before(saved)
+
+    def test_a_dry_run_saves_no_cursor(self, asked):
+        poll.poll_once(dry_run=True)
+        assert asked[0]["search_after"] is not None
+        assert not poll.CURSOR_FILE.exists()
+
+    def test_since_still_wins_when_set(self, asked, monkeypatch):
+        monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG,
+                                             "since": "2026-09-19T00:00:00.000000+00:00"})
+        poll.main()
+        assert asked[0]["search_after"] == poll.ms_before("2026-09-19T00:00:00.000000+00:00")
+        assert not poll.CURSOR_FILE.exists()  # nothing processed, so nothing to save
+
+
 @pytest.mark.usefixtures("routing")
 class TestClassifyPrompt:
     """The prompt is read on every call, so it may only speak in the reader's own nodes."""

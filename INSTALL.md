@@ -32,7 +32,7 @@ Fill in `config.json`:
 | `api_token` | your Hypothesis developer token |
 | `user` | `acct:yourname@hypothes.is` |
 | `owner` | how the prompt should name whose knowledge system this is |
-| `since` | how far back the first backfill reaches (ISO 8601) |
+| `since` | where the backfill and the watcher's first poll start (ISO 8601). Without it the backfill pulls your whole history and the watcher classifies only what you annotate after its first run |
 | `model` | `claude-sonnet-5` unless you have a reason to change it |
 | `max_per_run` | most annotations one poll classifies (default 25; `0` = no limit) |
 | `max_daily_usd` | dollar ceiling on classification per UTC day (default `0` = no limit; the example sets 5) |

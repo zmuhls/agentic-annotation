@@ -90,6 +90,11 @@ on `main`.
   new file replaces the old one in a single rename. It also no longer needs a
   `config.json` just to be imported (tests and CI fall back to the example),
   and without a `since` it pulls the whole history instead of a hardcoded date.
+- A `config.json` without `since` no longer breaks the watcher. With no saved
+  cursor either, `poll.py` asked `/api/search` for `search_after=None`, which
+  the api rejects with 400, so every run failed. The first run now starts from
+  the current moment and saves it as the cursor (`poll.start_cursor`), so
+  nothing billed reaches into history unless `since` asks for it.
 
 ## 2026-08-13
 
