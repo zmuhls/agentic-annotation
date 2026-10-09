@@ -1,20 +1,20 @@
-# Daily maintenance — 2026-10-08
+# Daily maintenance — 2026-10-09
 
-**Health: green.** The watcher is loaded (last exit 0) and `doctor.py` reports all `ok`. Live `poll.py` and `poll.py --dry-run` both exit 0. The logs have nothing new since the 10-06 DNS outage recovered, and there were no sonnet fallbacks. The cursor is holding because no annotations have arrived.
+**Health: green.** The watcher is loaded (last exit 0), and `doctor.py` reports all `ok` with a fresh heartbeat. Live `poll.py` and `poll.py --dry-run` both exit 0. The logs since the last run hold only a DNS/network outage (10-08 evening), which recovered at 01:59 UTC on its own. There were no sonnet fallbacks and no tracebacks from the current code. The cursor is holding because no annotations have arrived.
 
-**Fixed: the backfill could drop annotations at page boundaries** (from the agenda). A live probe showed that `sort=created` truncates `search_after` to milliseconds, the same as `updated`. `fetch_annotations.py` now pages through `poll.fetch_new(key="created")` and retries through `poll.search`. A failed pull exits with the reason and leaves the old file intact. A good pull replaces it in one rename. The script also imports without a `config.json`, and with no `since` it pulls the whole history instead of a hardcoded date. A live pull into scratch returned 226 unique rows, a superset of the July file's 225.
+**Improved: API rejections now say why** (from the agenda). A live probe showed that `/api/search` explains a 400 in its error body (e.g. `search_after must be a parsable date…`), but the watcher logged only `400 Bad Request`. The new `poll.api_reason` puts the API's reason into the watcher log, the heartbeat `detail`, and the backfill's exit message. If the body is missing or isn't JSON, only the status is kept. On Python 3.9, an `HTTPError` with no body raises `KeyError` from `read()`, so that case is handled.
 
-**Fixed: the watcher failed every poll when config had no `since`.** Before any cursor existed, `poll.py` sent `search_after=None`, and the API rejects that with a 400 (probed). Now the first run starts at the current moment and saves that as the cursor, so no billed classification reaches into history unless `since` asks for it. INSTALL.md documents this.
+**Improved: `doctor.py` flags an unreadable `since`.** The API answers 400 to a value like `garbage` or a 13th month (both probed). It accepts ISO 8601, epoch ms, and some looser forms. A bad `since` fails every poll until a cursor exists, so doctor now warns when the value is neither ISO 8601 nor epoch ms. It says nothing when `since` is fine or unset. INSTALL.md's troubleshooting table and CHANGELOG.md are updated.
 
-**Verify:** 9 new tests (6 backfill, 3 first-run); 197 pass on the watcher's interpreter (system Python 3.9.6); ruff clean; py_compile ok. The new tests fail on the old code. The dry-run and live polls left cursor, seen, and map checksums unchanged. No paid classification ran.
+**Verify:** 13 new tests, all seen failing first. 210 pass on the watcher's interpreter (system Python 3.9.6) and on the default `python3`. Ruff is clean and py_compile is ok. A live bad request through `api_reason` returned the API's full reason. Cursor and seen checksums were unchanged after the dry-run and live polls. No paid classification ran.
 
 **Dependencies:** none added; the runtime is still stdlib-only.
 
-**Push still blocked (human fix, 20 days old):** git's credential helper points at `/usr/local/bin/gh`, which is missing. The `gh` on PATH is an unrelated Python package (v0.0.4), not the GitHub CLI. **27 commits are waiting on local `main`.** Install the GitHub CLI (cli.github.com), run `gh auth login`, then `git push origin main`.
+**Push still blocked (human fix, 21 days old):** git's credential helper for github.com points at `/usr/local/bin/gh`, which is missing. The `gh` on PATH is an unrelated Python package, not the GitHub CLI. **29 commits are waiting on local `main`.** Install the GitHub CLI (cli.github.com), run `gh auth login`, then `git push origin main`.
 
 **Next candidates:**
 - **ACTION (human):** repair the `gh` credential helper (above).
-- MAINTENANCE: commit `ruff format` on its own plus a `ruff format --check` CI step, and add Python 3.9 to the CI matrix (the watcher runs on 3.9), once pushes work.
-- PRO-GRADE: `pyproject` console entry points (package `scripts/`); type hints on `poll.py`.
-- ROBUSTNESS: have `doctor.py` flag a `since` that isn't ISO 8601 (likely a 400 on every poll too; not probed).
+- MAINTENANCE: commit `ruff format` on its own (16 files), add a `ruff format --check` CI step, and add Python 3.9 to the CI matrix. 3.9 is end-of-life, so on the first push check that `setup-python` still serves it on `ubuntu-latest`; if not, pin `ubuntu-22.04`.
+- PRO-GRADE: console entry points. Blocker: the scripts find `data/` and `config.json` relative to their own file, so an installed package first needs a configurable home directory.
+- ROBUSTNESS: a 4xx (400/401) is still logged as "retrying next run". It will not heal on retry, so point to `config.json` instead.
 - ADOPTERS: a worked bootstrap-preview example in `docs/examples/` against fictional groups.
