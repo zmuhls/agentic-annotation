@@ -36,7 +36,7 @@ def main():
     try:
         rows = poll.fetch_new(since, key="created")
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
-        sys.exit(f"hypothesis api returned {e.code} {e.reason}; {OUT.name} left as it was")
+        sys.exit(f"hypothesis api returned {poll.api_reason(e)}; {OUT.name} left as it was")
     except OSError as e:
         sys.exit(f"hypothesis api unreachable ({e}); {OUT.name} left as it was")
 

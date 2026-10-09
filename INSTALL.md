@@ -168,6 +168,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 | Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`, or `bootstrap.py --write --force` to redraft both. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
 | `401` from the API | Bad or revoked token in `config.json`. Not retried, by design. |
+| `400 Bad Request: search_after must be a parsable date…` | `since` in `config.json` is not a date the API can read, and no cursor exists yet. Set it to ISO 8601 (`2024-07-15T00:00:00+00:00`) or remove it; `doctor.py` flags this. |
 | No log entries at all | Run `python3 scripts/doctor.py`. Either the unit is not loaded, or it names an interpreter that no longer exists — launchd reports that as `78: EX_CONFIG` in `launchctl list` and logs nothing. Re-run `install_agent.py --write --force` with a present interpreter and reload the unit. |
 | `doctor.py` says the heartbeat is stale | No poll has completed recently, whatever the log says. Check the unit first, then run `python3 scripts/poll.py` by hand and read the error. |
 | Nothing processes but annotations exist | `data/cursor.json` is ahead of them. Rewind `search_after` to an earlier timestamp. |

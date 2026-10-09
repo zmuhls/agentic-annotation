@@ -4,6 +4,7 @@ The `claude` subprocess is always mocked — these tests never shell out to the
 CLI and never spend real API money.
 """
 
+import io
 import json
 import sys
 from pathlib import Path
@@ -205,6 +206,35 @@ class TestSearchRetries:
         assert len(calls) == 1  # no retry on a real fault
 
 
+# The body /api/search sent back for search_after=garbage (probed live), line
+# breaks and leading ": " included.
+REJECTED_BODY = json.dumps({
+    "status": "failure",
+    "reason": ": search_after must be a parsable date in the form\n"
+              "                    yyyy-MM-dd'T'HH:mm:ss.SSX\n"
+              "                    or time in miliseconds since the epoch.",
+}).encode()
+
+
+def _http_error(code, msg, body=None):
+    fp = io.BytesIO(body) if body is not None else None
+    return poll.urllib.error.HTTPError("u", code, msg, {}, fp)
+
+
+class TestApiReason:
+    def test_reads_the_reason_the_api_gives(self):
+        reason = poll.api_reason(_http_error(400, "Bad Request", REJECTED_BODY))
+        assert reason == ("400 Bad Request: search_after must be a parsable date in the "
+                          "form yyyy-MM-dd'T'HH:mm:ss.SSX or time in miliseconds since "
+                          "the epoch.")
+
+    def test_a_body_that_is_not_json_falls_back_to_the_status(self):
+        assert poll.api_reason(_http_error(502, "Bad Gateway", b"<html>")) == "502 Bad Gateway"
+
+    def test_no_body_falls_back_to_the_status(self):
+        assert poll.api_reason(_http_error(401, "Unauthorized")) == "401 Unauthorized"
+
+
 class TestNetworkFailureNotice:
     def test_logs_once_per_outage_and_clears_on_recovery(self):
         msg = "hypothesis api unreachable (dns); retrying next run"
@@ -296,6 +326,15 @@ class TestHeartbeat:
         monkeypatch.setattr(poll, "fetch_new", boom)
         poll.main()
         assert self._health()["status"] == "api-error"
+
+    def test_a_rejected_request_records_the_apis_own_reason(self, monkeypatch):
+        # a bare "400 Bad Request" sends an adopter guessing; the body names the field
+        def rejected(cursor):
+            raise _http_error(400, "Bad Request", REJECTED_BODY)
+        monkeypatch.setattr(poll, "fetch_new", rejected)
+        poll.main()
+        assert "search_after must be a parsable date" in self._health()["detail"]
+        assert "search_after must be a parsable date" in poll.LOG_FILE.read_text()
 
     def test_counts_annotations_that_took_the_rules_fallback(self, monkeypatch):
         rows = [{"id": "a1", "updated": "2026-09-20T00:00:00+00:00"},

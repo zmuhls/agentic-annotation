@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import fetch_annotations  # noqa: E402
 import poll  # noqa: E402
-from test_poll import _FakeSearch  # noqa: E402
+from test_poll import REJECTED_BODY, _FakeSearch, _http_error  # noqa: E402
 
 # a1 and a2 share a millisecond, so a two-row page ends inside it
 CREATED = ["2026-09-20T00:00:00.100000+00:00",
@@ -81,6 +81,14 @@ class TestBackfill:
 
         monkeypatch.setattr(poll, "search", unauthorized)
         with pytest.raises(SystemExit, match="401 Unauthorized"):
+            fetch_annotations.main()
+
+    def test_a_rejected_pull_says_why(self, monkeypatch):
+        def rejected(params, **kw):
+            raise _http_error(400, "Bad Request", REJECTED_BODY)
+
+        monkeypatch.setattr(poll, "search", rejected)
+        with pytest.raises(SystemExit, match="search_after must be a parsable date"):
             fetch_annotations.main()
 
     def test_a_placeholder_token_exits_before_any_call(self, monkeypatch):

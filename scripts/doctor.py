@@ -163,6 +163,33 @@ def check_config(config):
     return Check("ok", "config", f"watching {config['user']}")  # never print the token
 
 
+def check_since(config):
+    """Flag a `since` the api may refuse; say nothing when it is fine or unset.
+
+    /api/search answers 400 to a `search_after` it cannot read as a date
+    (probed: "garbage", a 13th month). The watcher's first poll and the
+    backfill both start from `since`, so a bad one fails every poll until a
+    cursor exists, and the log shows only the api's complaint about
+    `search_after`, a name the adopter never wrote. ISO 8601 and epoch
+    milliseconds pass; the api reads some looser forms too, so this warns
+    rather than fails.
+    """
+    since = config.get("since")
+    if not since:
+        return []
+    text = str(since)
+    if text.isdigit():
+        return []
+    try:  # Python 3.9's fromisoformat has no trailing Z
+        datetime.fromisoformat(text[:-1] + "+00:00" if text[-1:] in "Zz" else text)
+        return []
+    except ValueError:
+        return [Check("warn", "since",
+                      f"config.json `since` is {since!r}, not an ISO 8601 date — the "
+                      "api may answer 400 to every poll until a cursor exists; use "
+                      "e.g. 2024-07-15T00:00:00+00:00")]
+
+
 def check_claude(config):
     binary = config.get("claude_bin") or shutil.which("claude")
     if binary and Path(binary).exists():
@@ -177,7 +204,8 @@ def run_checks(now=None, config=None, launch_agents=LAUNCH_AGENTS,
     config = load_config() if config is None else config
     units = find_units(launch_agents, systemd_dir)
     max_age = interval_for(units) * MISSED_POLLS_ALLOWED
-    return [check_config(config), check_claude(config), *check_units(units),
+    return [check_config(config), *check_since(config), check_claude(config),
+            *check_units(units),
             check_heartbeat(load_health(health_file), now, max_age,
                             float(config.get("max_daily_usd", 0) or 0))]
 

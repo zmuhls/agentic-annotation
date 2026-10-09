@@ -142,6 +142,23 @@ def search(params, attempts=3, backoff=5):
         time.sleep(backoff * (2 ** attempt))
 
 
+def api_reason(err):
+    """`err`'s status, plus the reason /api/search put in the error body.
+
+    A bare "400 Bad Request" says nothing about which value the api refused,
+    but the body names it — an unreadable `since`, for one, comes back as
+    "search_after must be a parsable date..." (probed live). Bodies that are
+    missing or not JSON leave just the status.
+    """
+    status = f"{err.code} {err.reason}"
+    try:
+        reason = json.loads(err.read().decode()).get("reason") or ""
+        reason = " ".join(reason.lstrip(": ").split())
+    except Exception:  # an HTTPError with no body raises KeyError from read() on 3.9
+        return status
+    return f"{status}: {reason}" if reason else status
+
+
 def ms_before(stamp):
     """The `search_after` that re-reads the whole millisecond `stamp` falls in.
 
@@ -576,9 +593,10 @@ def poll_once(dry_run):
     try:
         anns = fetch_new(cursor)
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
-        note_network_failure(f"hypothesis api returned {e.code} {e.reason}; retrying next run")
+        reason = api_reason(e)
+        note_network_failure(f"hypothesis api returned {reason}; retrying next run")
         if not dry_run:
-            record_health("api-error", detail=f"{e.code} {e.reason}")
+            record_health("api-error", detail=reason)
         return
     except OSError as e:
         note_network_failure(f"hypothesis api unreachable ({e}); retrying next run")

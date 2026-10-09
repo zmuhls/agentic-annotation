@@ -9,6 +9,16 @@ on `main`.
 
 ### Added
 
+- `doctor.py` warns when `since` in `config.json` is not ISO 8601 or epoch
+  milliseconds. The API answers 400 to a date it cannot read, so a bad `since`
+  failed the watcher's first poll and every one after it until a cursor
+  existed, and it failed the backfill too.
+
+- API errors now carry the reason the API gives in its error body, in the
+  watcher log, the heartbeat `detail`, and the backfill's exit message
+  (`poll.api_reason`). A bare `400 Bad Request` became
+  `400 Bad Request: search_after must be a parsable date…`.
+
 - `scripts/bootstrap.py` runs both drafters as one step: one fetch of the
   adopter's groups and recent annotations, the routing's node ids read off the
   `ia.md` being drafted rather than the one on disk, and both files written or

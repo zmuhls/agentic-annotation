@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import doctor  # noqa: E402
@@ -166,6 +168,29 @@ class TestLoadHealth:
         path = tmp_path / "health.json"
         path.write_text(json.dumps({"last_run": "2026-09-20T12:00:00+00:00"}))
         assert doctor.load_health(path)["last_run"] == "2026-09-20T12:00:00+00:00"
+
+
+class TestCheckSince:
+    @pytest.mark.parametrize("since", [
+        "2024-07-15T00:00:00.000000+00:00",  # config.example.json's form
+        "2024-07-15T00:00:00Z",              # Z, which Python 3.9 cannot parse alone
+        "2024-07-15",
+        "1721001600000",                     # epoch milliseconds, which the api allows
+        1721001600000,
+    ])
+    def test_dates_the_api_reads_pass_silently(self, since):
+        assert doctor.check_since({"since": since}) == []
+
+    def test_no_since_is_fine(self):
+        # without one the watcher starts at its first run (see INSTALL.md)
+        assert doctor.check_since({}) == []
+
+    @pytest.mark.parametrize("since", ["garbage", "2024-13-45T00:00:00+00:00"])
+    def test_an_unreadable_since_is_flagged(self, since):
+        # the api answers 400 to both (probed), on every poll that has no cursor yet
+        [check] = doctor.check_since({"since": since})
+        assert check.level == "warn"
+        assert repr(since) in check.detail
 
 
 class TestExitCode:
