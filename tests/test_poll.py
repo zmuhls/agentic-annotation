@@ -336,6 +336,28 @@ class TestHeartbeat:
         assert "search_after must be a parsable date" in self._health()["detail"]
         assert "search_after must be a parsable date" in poll.LOG_FILE.read_text()
 
+    def test_a_rejected_request_points_at_config_not_a_retry(self, monkeypatch):
+        # a 4xx fails every run the same way until config.json changes;
+        # "retrying next run" sent adopters waiting for a self-heal
+        def unauthorized(cursor):
+            raise _http_error(401, "Unauthorized")
+        monkeypatch.setattr(poll, "fetch_new", unauthorized)
+        poll.main()
+        log = poll.LOG_FILE.read_text()
+        assert "401 Unauthorized" in log
+        assert "retrying next run" not in log
+        assert "config.json" in log
+
+    def test_a_server_error_that_outlasts_the_retries_still_says_retrying(self, monkeypatch):
+        def unavailable(cursor):
+            raise _http_error(503, "Service Unavailable")
+        monkeypatch.setattr(poll, "fetch_new", unavailable)
+        poll.main()
+        log = poll.LOG_FILE.read_text()
+        assert "503 Service Unavailable" in log
+        assert "retrying next run" in log
+        assert self._health()["status"] == "api-error"
+
     def test_counts_annotations_that_took_the_rules_fallback(self, monkeypatch):
         rows = [{"id": "a1", "updated": "2026-09-20T00:00:00+00:00"},
                 {"id": "a2", "updated": "2026-09-20T00:01:00+00:00"}]

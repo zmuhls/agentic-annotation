@@ -219,8 +219,9 @@ resets, SSL EOF, read timeouts, and `429`/`5xx` from the API — with three
 attempts and exponential backoff inside one five-minute interval. If they all
 fail, the run logs a single line and exits cleanly rather than raising; the
 message is written once per outage, not once per poll, and a recovery line
-follows when the API answers again. Real faults (`401` bad token, `400` bad
-query) raise immediately instead of being retried.
+follows when the API answers again. Requests the API rejects (a `4xx`, such as
+`400` for an unreadable `since`) are not retried: the log line says a retry will
+not fix them and points at `config.json` instead.
 
 ## License
 

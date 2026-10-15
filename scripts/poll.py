@@ -594,7 +594,15 @@ def poll_once(dry_run):
         anns = fetch_new(cursor)
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
         reason = api_reason(e)
-        note_network_failure(f"hypothesis api returned {reason}; retrying next run")
+        if e.code in RETRY_STATUSES:
+            note_network_failure(f"hypothesis api returned {reason}; retrying next run")
+        else:
+            # search() declined to retry this: a 4xx such as an unreadable `since`
+            # is refused the same way every run until config.json changes, so
+            # promising a retry told adopters to wait for a fix that never comes.
+            note_network_failure(f"hypothesis api rejected the request ({reason}); a retry "
+                                 "will not fix this — check config.json or run "
+                                 "scripts/doctor.py")
         if not dry_run:
             record_health("api-error", detail=reason)
         return

@@ -72,6 +72,18 @@ on `main`.
 
 ### Changed
 
+- A request the API rejects (a `4xx` other than `429`, which `search()` never
+  retries) is no longer logged as "retrying next run". It is refused the same
+  way on every poll until `config.json` changes, so the log line now says a
+  retry will not fix it and points at `config.json` and `doctor.py`. Exhausted
+  retries on a `429` or `5xx` still say "retrying next run".
+- INSTALL.md no longer says a bad token shows up as a `401`. `/api/search`
+  answers a token it does not recognize as an anonymous user, with public
+  annotations only (probed). The troubleshooting table now lists the real
+  symptom: private-group annotations stop arriving and nothing errors.
+- CI also runs on Python 3.9, the macOS system `python3` the launchd unit
+  uses, on a pinned `ubuntu-24.04` runner since 3.9 is past end-of-life. CI's
+  ruff is pinned to the version the code is checked with locally.
 - The classifier prompt draws its "new child" example from the first child node
   in your own `ia.md` (`<existing-node>/<child>` if it has none). It used to
   name one author's node on every call, a node most other taxonomies lack.
