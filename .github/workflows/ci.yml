@@ -8,18 +8,26 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12"]
+        include:
+          # macOS's system python3, which the watcher's launchd unit runs, is
+          # 3.9. It is past end-of-life, so pin a runner image that still has
+          # setup-python builds for it rather than trusting ubuntu-latest to.
+          - os: ubuntu-24.04
+            python-version: "3.9"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      # dev-only tooling; the watcher itself has no runtime dependencies
-      - run: pip install pytest ruff
+      # dev-only tooling; the watcher itself has no runtime dependencies. ruff is
+      # pinned so a new release's rules cannot fail CI on code that passed locally.
+      - run: pip install pytest "ruff==0.11.2"
       - run: ruff check .
       # the suite mocks the Hypothesis API and the claude CLI — CI spends no API money,
       # and poll.py reads config.example.json when the private config.json is absent
