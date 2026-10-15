@@ -1,20 +1,23 @@
-# Daily maintenance — 2026-10-09
+# Daily maintenance — 2026-10-15
 
-**Health: green.** The watcher is loaded (last exit 0), and `doctor.py` reports all `ok` with a fresh heartbeat. Live `poll.py` and `poll.py --dry-run` both exit 0. The logs since the last run hold only a DNS/network outage (10-08 evening), which recovered at 01:59 UTC on its own. There were no sonnet fallbacks and no tracebacks from the current code. The cursor is holding because no annotations have arrived.
+**Health: green.** The watcher is loaded (last exit 0), and `doctor.py` reports all `ok` with a fresh heartbeat. Live `poll.py` and `poll.py --dry-run` both exit 0. The logs since 10-09 hold only DNS/wifi blips, and each recovered on its own. There were no sonnet fallbacks and no tracebacks from the current code. The cursor is holding because no annotations have arrived.
 
-**Improved: API rejections now say why** (from the agenda). A live probe showed that `/api/search` explains a 400 in its error body (e.g. `search_after must be a parsable date…`), but the watcher logged only `400 Bad Request`. The new `poll.api_reason` puts the API's reason into the watcher log, the heartbeat `detail`, and the backfill's exit message. If the body is missing or isn't JSON, only the status is kept. On Python 3.9, an `HTTPError` with no body raises `KeyError` from `read()`, so that case is handled.
+**Push unblocked: all 31 waiting commits are on origin.** The GitHub CLI is now installed at `~/.local/bin/gh` and logged in. The push used a one-off `-c credential.helper=…` override. Global git config is unchanged and still names the missing `/usr/local/bin/gh`, so a plain `git push` still fails. Before pushing, I scanned the unpushed diff for tokens, usernames, and absolute paths and found none. CI's first run since 08-13 is green.
 
-**Improved: `doctor.py` flags an unreadable `since`.** The API answers 400 to a value like `garbage` or a 13th month (both probed). It accepts ISO 8601, epoch ms, and some looser forms. A bad `since` fails every poll until a cursor exists, so doctor now warns when the value is neither ISO 8601 nor epoch ms. It says nothing when `since` is fine or unset. INSTALL.md's troubleshooting table and CHANGELOG.md are updated.
+**Changed: a rejected request no longer says "retrying next run"** (from the agenda). `search()` never retries a `4xx` other than `429`, and that request fails every poll until `config.json` changes. The log line now says a retry will not fix it and points at `config.json` and `doctor.py`. A `429` or `5xx` that outlasts the retries still says "retrying next run".
 
-**Verify:** 13 new tests, all seen failing first. 210 pass on the watcher's interpreter (system Python 3.9.6) and on the default `python3`. Ruff is clean and py_compile is ok. A live bad request through `api_reason` returned the API's full reason. Cursor and seen checksums were unchanged after the dry-run and live polls. No paid classification ran.
+**Found: a bad token is not a 401.** A live probe sent a made-up token, and `/api/search` answered `200` as an anonymous user, with public rows only. A wrong or revoked token therefore drops private-group annotations with no error anywhere. The INSTALL.md troubleshooting row claimed a `401`; it now describes the real symptom.
+
+**Changed: CI** now also runs Python 3.9, the watcher's interpreter, on a pinned `ubuntu-24.04` runner. ubuntu-latest moves to Ubuntu 26 on 10-19, and 3.9 is end-of-life. ruff is pinned to 0.11.2, the version the code is checked with locally. All 3 jobs pass.
+
+**Verify:** 2 new tests; the 401 test failed before the fix. 212 pass locally and in a clean clone with no private config. Ruff is clean and py_compile is ok. A live `400` probe, with every write sent to a scratch directory, printed the new message. Cursor and seen checksums were unchanged. No paid classification ran.
 
 **Dependencies:** none added; the runtime is still stdlib-only.
 
-**Push still blocked (human fix, 21 days old):** git's credential helper for github.com points at `/usr/local/bin/gh`, which is missing. The `gh` on PATH is an unrelated Python package, not the GitHub CLI. **29 commits are waiting on local `main`.** Install the GitHub CLI (cli.github.com), run `gh auth login`, then `git push origin main`.
-
 **Next candidates:**
-- **ACTION (human):** repair the `gh` credential helper (above).
-- MAINTENANCE: commit `ruff format` on its own (16 files), add a `ruff format --check` CI step, and add Python 3.9 to the CI matrix. 3.9 is end-of-life, so on the first push check that `setup-python` still serves it on `ubuntu-latest`; if not, pin `ubuntu-22.04`.
-- PRO-GRADE: console entry points. Blocker: the scripts find `data/` and `config.json` relative to their own file, so an installed package first needs a configurable home directory.
-- ROBUSTNESS: a 4xx (400/401) is still logged as "retrying next run". It will not heal on retry, so point to `config.json` instead.
+- **ACTION (human):** run `~/.local/bin/gh auth setup-git` so a plain `git push` works again.
+- ROBUSTNESS: `doctor.py` should check the token. Probed today: `GET /api/profile` returns `userid: null` for a bad token and the configured user for a good one.
+- MAINTENANCE: bump `actions/checkout` and `actions/setup-python` to their Node 24 majors (CI warns that Node 20 is deprecated).
+- MAINTENANCE: commit `ruff format` on its own (16 files), then add a `ruff format --check` CI step.
+- PRO-GRADE: console entry points. These first need a configurable home directory for `data/` and `config.json`.
 - ADOPTERS: a worked bootstrap-preview example in `docs/examples/` against fictional groups.
