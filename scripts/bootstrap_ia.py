@@ -64,8 +64,9 @@ def get(path, token, **params):
 
 def recent_annotations(token, user):
     """The adopter's most recent annotations, enough to rank where they annotate."""
-    return get("search", token, user=user, sort="updated",
-               order="desc", limit=SAMPLE_LIMIT).get("rows", [])
+    return get("search", token, user=user, sort="updated", order="desc", limit=SAMPLE_LIMIT).get(
+        "rows", []
+    )
 
 
 def slugify(text, fallback="group"):
@@ -121,9 +122,15 @@ def plan(groups, counts):
         name = group.get("name") or gid
         slug = _unique(slugify(name), taken)
         seen = counts.get(gid, Counter())
-        entries.append({"id": gid, "name": name, "slug": slug,
-                        "total": sum(seen.values()),
-                        "children": busy_domains(seen, slug)})
+        entries.append(
+            {
+                "id": gid,
+                "name": name,
+                "slug": slug,
+                "total": sum(seen.values()),
+                "children": busy_domains(seen, slug),
+            }
+        )
     return entries
 
 
@@ -134,9 +141,10 @@ def nodes_section(groups, counts):
         slug, name = entry["slug"], entry["name"]
         lines.append(f"### {slug} — {name}")
         lines.append(
-            f"Annotations in the \"{name}\" group ({entry['total']} in a sample of the "
+            f'Annotations in the "{name}" group ({entry["total"]} in a sample of the '
             f"{SAMPLE_LIMIT} most recent). Replace this line with what the group "
-            "is actually for — the classifier reads it.")
+            "is actually for — the classifier reads it."
+        )
         for domain, hits, node in entry["children"]:
             lines.append(f"- `{node}` — {domain} ({hits})")
         lines.append(f"- `{slug}/general` — anything in this group the children above miss")
@@ -167,8 +175,9 @@ def nodes_of(text):
 def node_ids(text):
     """Every node id an ia.md defines: its `### ` headings and `- `id`` children."""
     section = nodes_of(text)
-    return (set(re.findall(r"^### (\S+)", section, re.MULTILINE))
-            | set(re.findall(r"^- `([^`]+)`", section, re.MULTILINE)))
+    return set(re.findall(r"^### (\S+)", section, re.MULTILINE)) | set(
+        re.findall(r"^- `([^`]+)`", section, re.MULTILINE)
+    )
 
 
 def split_template(text):
@@ -202,8 +211,7 @@ def draft(template_text, user, groups, counts):
     preamble = re.sub(r"`acct:[^`]*`", f"`{user}`", preamble)
     example = first_child(section)
     if example:
-        preamble = re.sub(r"\(e\.g\. `[^`]+`\)", f"(e.g. `{example}/<child>`)",
-                          preamble, count=1)
+        preamble = re.sub(r"\(e\.g\. `[^`]+`\)", f"(e.g. `{example}/<child>`)", preamble, count=1)
     return preamble + section + tail
 
 
@@ -224,15 +232,19 @@ def main():
 
     if "--write" not in sys.argv:
         print(text, end="")
-        print(f"\n# {len(groups)} group(s), {len(annotations)} annotation(s) sampled; "
-              "re-run with --write --force to save to architecture/ia.md",
-              file=sys.stderr)
+        print(
+            f"\n# {len(groups)} group(s), {len(annotations)} annotation(s) sampled; "
+            "re-run with --write --force to save to architecture/ia.md",
+            file=sys.stderr,
+        )
         return
     if "--force" not in sys.argv:
         sys.exit(f"{OUT.name} already exists — pass --force to overwrite")
     OUT.write_text(text)
-    print(f"wrote {OUT} from {len(groups)} group(s); now edit each node's "
-          "description and prune what you do not want")
+    print(
+        f"wrote {OUT} from {len(groups)} group(s); now edit each node's "
+        "description and prune what you do not want"
+    )
 
 
 if __name__ == "__main__":

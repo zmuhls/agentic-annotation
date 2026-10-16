@@ -21,11 +21,15 @@ POLL = doctor.POLL_SCRIPT
 
 def _plist(tmp_path, name, interpreter, script=POLL, interval=300):
     path = tmp_path / f"{name}.plist"
-    path.write_bytes(plistlib.dumps({
-        "Label": name,
-        "ProgramArguments": [interpreter, str(script)],
-        "StartInterval": interval,
-    }))
+    path.write_bytes(
+        plistlib.dumps(
+            {
+                "Label": name,
+                "ProgramArguments": [interpreter, str(script)],
+                "StartInterval": interval,
+            }
+        )
+    )
     return path
 
 
@@ -47,8 +51,9 @@ class TestFindUnits:
     def test_ignores_unrelated_units(self, tmp_path):
         agents, systemd = tmp_path / "agents", tmp_path / "systemd"
         agents.mkdir(), systemd.mkdir()
-        _plist(agents, "com.other.thing", "/usr/bin/python3",
-               script=Path("/somewhere/else/poll.py"))
+        _plist(
+            agents, "com.other.thing", "/usr/bin/python3", script=Path("/somewhere/else/poll.py")
+        )
         assert doctor.find_units(agents, systemd) == []
 
     def test_unreadable_plist_does_not_crash_the_scan(self, tmp_path):
@@ -62,8 +67,7 @@ class TestFindUnits:
         agents, systemd = tmp_path / "agents", tmp_path / "systemd"
         agents.mkdir(), systemd.mkdir()
         _service(systemd, "watcher", "/usr/bin/python3")
-        assert [u.interpreter for u in doctor.find_units(agents, systemd)] \
-            == ["/usr/bin/python3"]
+        assert [u.interpreter for u in doctor.find_units(agents, systemd)] == ["/usr/bin/python3"]
 
     def test_missing_directories_are_fine(self, tmp_path):
         assert doctor.find_units(tmp_path / "nope", tmp_path / "also-nope") == []
@@ -130,7 +134,8 @@ class TestCheckHeartbeat:
 
     def test_lifetime_spend_is_surfaced_when_there_is_any(self):
         check = doctor.check_heartbeat(
-            self._health(2, processed=1, cost_usd_total=4.3079), self._now(), 900)
+            self._health(2, processed=1, cost_usd_total=4.3079), self._now(), 900
+        )
         assert check.level == "ok"
         assert "$4.31 spent" in check.detail
 
@@ -171,13 +176,16 @@ class TestLoadHealth:
 
 
 class TestCheckSince:
-    @pytest.mark.parametrize("since", [
-        "2024-07-15T00:00:00.000000+00:00",  # config.example.json's form
-        "2024-07-15T00:00:00Z",              # Z, which Python 3.9 cannot parse alone
-        "2024-07-15",
-        "1721001600000",                     # epoch milliseconds, which the api allows
-        1721001600000,
-    ])
+    @pytest.mark.parametrize(
+        "since",
+        [
+            "2024-07-15T00:00:00.000000+00:00",  # config.example.json's form
+            "2024-07-15T00:00:00Z",  # Z, which Python 3.9 cannot parse alone
+            "2024-07-15",
+            "1721001600000",  # epoch milliseconds, which the api allows
+            1721001600000,
+        ],
+    )
     def test_dates_the_api_reads_pass_silently(self, since):
         assert doctor.check_since({"since": since}) == []
 
@@ -202,7 +210,8 @@ class TestCheckToken:
 
     def test_a_token_the_api_knows_passes(self):
         check = doctor.check_token(
-            self.CONFIG, fetch=lambda token: {"userid": "acct:me@hypothes.is"})
+            self.CONFIG, fetch=lambda token: {"userid": "acct:me@hypothes.is"}
+        )
         assert check.level == "ok"
         assert "acct:me@hypothes.is" in check.detail
 
@@ -215,7 +224,8 @@ class TestCheckToken:
 
     def test_a_token_for_a_different_account_warns(self):
         check = doctor.check_token(
-            self.CONFIG, fetch=lambda token: {"userid": "acct:other@hypothes.is"})
+            self.CONFIG, fetch=lambda token: {"userid": "acct:other@hypothes.is"}
+        )
         assert check.level == "warn"
         assert "acct:other@hypothes.is" in check.detail
         assert "acct:me@hypothes.is" in check.detail
@@ -230,6 +240,7 @@ class TestCheckToken:
     def test_an_unreachable_api_warns_rather_than_failing(self):
         def down(token):
             raise OSError("dns")
+
         check = doctor.check_token(self.CONFIG, fetch=down)
         assert check.level == "warn"
         assert "dns" in check.detail
@@ -237,16 +248,19 @@ class TestCheckToken:
     def test_offline_skips_the_network_entirely(self):
         calls = []
         checks = doctor.run_checks(
-            config=self.CONFIG, offline=True,
-            fetch_profile=lambda token: calls.append(token))
+            config=self.CONFIG, offline=True, fetch_profile=lambda token: calls.append(token)
+        )
         assert calls == []
         assert "token" not in [c.name for c in checks]
 
     def test_run_checks_includes_the_token_check_by_default(self, tmp_path):
         checks = doctor.run_checks(
-            config=self.CONFIG, launch_agents=tmp_path, systemd_dir=tmp_path,
+            config=self.CONFIG,
+            launch_agents=tmp_path,
+            systemd_dir=tmp_path,
             health_file=tmp_path / "health.json",
-            fetch_profile=lambda token: {"userid": "acct:me@hypothes.is"})
+            fetch_profile=lambda token: {"userid": "acct:me@hypothes.is"},
+        )
         assert [c.level for c in checks if c.name == "token"] == ["ok"]
 
 

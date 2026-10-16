@@ -127,8 +127,7 @@ def search(params, attempts=3, backoff=5):
     within one launchd interval; let genuine faults (401, 400) raise at once.
     """
     url = f"{API}/search?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {CONFIG['api_token']}"})
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {CONFIG['api_token']}"})
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -139,7 +138,7 @@ def search(params, attempts=3, backoff=5):
         except OSError:
             if attempt == attempts - 1:
                 raise
-        time.sleep(backoff * (2 ** attempt))
+        time.sleep(backoff * (2**attempt))
 
 
 def api_reason(err):
@@ -189,13 +188,15 @@ def fetch_new(cursor, page_size=200, key="updated"):
     """
     rows, ids, search_after = [], set(), ms_before(cursor)
     while True:
-        page = search({
-            "user": CONFIG["user"],
-            "sort": key,
-            "order": "asc",
-            "search_after": search_after,
-            "limit": page_size,
-        }).get("rows", [])
+        page = search(
+            {
+                "user": CONFIG["user"],
+                "sort": key,
+                "order": "asc",
+                "search_after": search_after,
+                "limit": page_size,
+            }
+        ).get("rows", [])
         batch = [r for r in page if r["id"] not in ids]
         rows.extend(batch)
         ids.update(r["id"] for r in batch)
@@ -206,8 +207,11 @@ def fetch_new(cursor, page_size=200, key="updated"):
 
 
 def claude_bin():
-    return CONFIG.get("claude_bin") or shutil.which("claude") \
+    return (
+        CONFIG.get("claude_bin")
+        or shutil.which("claude")
         or str(Path.home() / ".local" / "bin" / "claude")
+    )
 
 
 def siblings_at(node, exclude_id, limit=6):
@@ -217,10 +221,13 @@ def siblings_at(node, exclude_id, limit=6):
     records = [json.loads(line) for line in MAP_FILE.open()]
     sibs = [r for r in records if r["node"] == node and r["id"] != exclude_id]
     sibs.sort(key=lambda r: r.get("created", ""), reverse=True)
-    return [{
-        "title": r.get("title") or r.get("uri", ""),
-        "gist": (r.get("role") or r.get("note") or r.get("quote") or "")[:120],
-    } for r in sibs[:limit]]
+    return [
+        {
+            "title": r.get("title") or r.get("uri", ""),
+            "gist": (r.get("role") or r.get("note") or r.get("quote") or "")[:120],
+        }
+        for r in sibs[:limit]
+    ]
 
 
 def new_node_example(ia):
@@ -301,8 +308,7 @@ def cli_error_text(proc):
 
 # A dead login does not heal in the 30s between attempts, and every retry burns
 # another poll interval — say so on the first failure instead.
-AUTH_MARKERS = ("authenticate", "oauth", "unauthorized", "invalid api key",
-                "please run /login")
+AUTH_MARKERS = ("authenticate", "oauth", "unauthorized", "invalid api key", "please run /login")
 
 
 def call_sonnet(prompt, attempts=2, meta=None):
@@ -317,7 +323,10 @@ def call_sonnet(prompt, attempts=2, meta=None):
     for attempt in range(attempts):
         proc = subprocess.run(
             [claude_bin(), "-p", "--model", MODEL, "--output-format", "json"],
-            input=prompt, capture_output=True, text=True, timeout=600,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
         if proc.returncode == 0:
             break
@@ -325,7 +334,8 @@ def call_sonnet(prompt, attempts=2, meta=None):
         if any(m in detail.lower() for m in AUTH_MARKERS):
             raise RuntimeError(
                 f"claude cli is not authenticated ({detail}) — run `claude` "
-                "and sign in; classification is falling back to rules until then")
+                "and sign in; classification is falling back to rules until then"
+            )
         if attempt < attempts - 1:
             time.sleep(30)  # transient API outages are common enough to ride out
     if proc.returncode != 0:
@@ -339,15 +349,16 @@ def call_sonnet(prompt, attempts=2, meta=None):
         envelope = wrapper
     elif isinstance(wrapper, list):
         # some CLI versions emit a list of message objects ending in a result
-        envelope = next((m for m in reversed(wrapper)
-                         if isinstance(m, dict) and m.get("type") == "result"), {})
+        envelope = next(
+            (m for m in reversed(wrapper) if isinstance(m, dict) and m.get("type") == "result"), {}
+        )
     result = proc.stdout if envelope is None else envelope.get("result", "")
     if meta is not None and isinstance(envelope, dict):
         meta["cost_usd"] = envelope.get("total_cost_usd")
     start, end = result.find("{"), result.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"no JSON in model output: {result[:200]}")
-    return json.loads(result[start:end + 1])
+    return json.loads(result[start : end + 1])
 
 
 def upsert_map(record):
@@ -366,31 +377,33 @@ def write_action_file(ann, action):
     date = ann.get("updated", "")[:10] or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     path = ACTIONS_DIR / f"{date}-{action['type']}-{ann['id']}.md"
     title = title_of(ann)
-    path.write_text(f"""# {action['type'].capitalize()}: {title or ann.get('uri', '')}
+    path.write_text(f"""# {action["type"].capitalize()}: {title or ann.get("uri", "")}
 
-- **artifact**: {action.get('artifact', ann.get('uri', ''))}
-- **annotation**: {ann.get('links', {}).get('incontext', '')}
-- **tagged**: {', '.join(ann.get('tags', []))}
-- **created**: {ann.get('created', '')}
+- **artifact**: {action.get("artifact", ann.get("uri", ""))}
+- **annotation**: {ann.get("links", {}).get("incontext", "")}
+- **tagged**: {", ".join(ann.get("tags", []))}
+- **created**: {ann.get("created", "")}
 
 ## Anchor
 
-> {action.get('anchor', quote_of(ann))}
+> {action.get("anchor", quote_of(ann))}
 
 ## Annotation note
 
-{ann.get('text') or '(no note)'}
+{ann.get("text") or "(no note)"}
 
 ## Instructions
 
-{action.get('instructions', '')}
+{action.get("instructions", "")}
 """)
     return path
 
 
 def note_emergent(node, role, ann):
     if not EMERGENT_FILE.exists():
-        EMERGENT_FILE.write_text("# Emergent nodes proposed by Sonnet (review, then fold into ia.md)\n\n")
+        EMERGENT_FILE.write_text(
+            "# Emergent nodes proposed by Sonnet (review, then fold into ia.md)\n\n"
+        )
     with EMERGENT_FILE.open("a") as f:
         f.write(f"- `{node}` — {role} (from {ann.get('links', {}).get('incontext', ann['id'])})\n")
 
@@ -427,17 +440,23 @@ def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0):
         except (OSError, ValueError, TypeError):
             spent = 0.0  # a corrupt stamp restarts the tally, never fails a poll
     now = datetime.now(timezone.utc)
-    HEALTH_FILE.write_text(json.dumps({
-        "last_run": now.isoformat(timespec="seconds"),
-        "status": status,
-        "processed": processed,
-        "fallbacks": fallbacks,
-        "cost_usd": round(cost_usd, 4),
-        "cost_usd_total": round(spent + cost_usd, 4),
-        "cost_day": now.date().isoformat(),
-        "cost_usd_today": round(spent_today() + cost_usd, 4),
-        "detail": detail,
-    }, indent=2) + "\n")
+    HEALTH_FILE.write_text(
+        json.dumps(
+            {
+                "last_run": now.isoformat(timespec="seconds"),
+                "status": status,
+                "processed": processed,
+                "fallbacks": fallbacks,
+                "cost_usd": round(cost_usd, 4),
+                "cost_usd_total": round(spent + cost_usd, 4),
+                "cost_day": now.date().isoformat(),
+                "cost_usd_today": round(spent_today() + cost_usd, 4),
+                "detail": detail,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def spent_today():
@@ -468,13 +487,17 @@ def _interrupt_handler(dry_run):
     cursor only advances per finished annotation, so the next run re-fetches),
     but the silence cost an hour of forensics to rule out a real fault.
     """
+
     def handler(signum, _frame):
         name = signal.Signals(signum).name
-        log(f"poll interrupted by {name} mid-run; no state written, "
-            "the next run picks up from the same cursor")
+        log(
+            f"poll interrupted by {name} mid-run; no state written, "
+            "the next run picks up from the same cursor"
+        )
         if not dry_run:
             record_health("interrupted", detail=f"run cut short by {name}")
         sys.exit(128 + signum)
+
     return handler
 
 
@@ -512,19 +535,23 @@ def process(ann, dry_run=False):
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
         where = f" at {tb[-1].filename.split('/')[-1]}:{tb[-1].lineno}" if tb else ""
-        log(f"  sonnet failed for {ann['id']}: {type(e).__name__}: {e}{where}"
-            "; falling back to rules")
+        log(
+            f"  sonnet failed for {ann['id']}: {type(e).__name__}: {e}{where}"
+            "; falling back to rules"
+        )
         record["classified_by"] = "rules-fallback"
     # every tagged action produces a file: stub any the model missed
     produced = {a.get("type") for a in actions}
     for tag in wanted:
         if tag not in produced:
-            actions.append({
-                "type": tag,
-                "artifact": ann.get("uri", ""),
-                "anchor": quote_of(ann),
-                "instructions": "(model produced no instructions — act on the annotation note directly)",
-            })
+            actions.append(
+                {
+                    "type": tag,
+                    "artifact": ann.get("uri", ""),
+                    "anchor": quote_of(ann),
+                    "instructions": "(model produced no instructions — act on the annotation note directly)",
+                }
+            )
     actions = [a for a in actions if a.get("type") in wanted]  # tags drive files
     if dry_run:
         print(json.dumps({**record, "pending_actions": actions}, indent=2))
@@ -586,8 +613,11 @@ def poll_once(dry_run):
     for path in (LOG_FILE, STDOUT_LOG):
         trim_log(path)
 
-    cursor = json.loads(CURSOR_FILE.read_text())["search_after"] \
-        if CURSOR_FILE.exists() else start_cursor(dry_run)
+    cursor = (
+        json.loads(CURSOR_FILE.read_text())["search_after"]
+        if CURSOR_FILE.exists()
+        else start_cursor(dry_run)
+    )
     seen = json.loads(SEEN_FILE.read_text()) if SEEN_FILE.exists() else {}
 
     try:
@@ -600,9 +630,11 @@ def poll_once(dry_run):
             # search() declined to retry this: a 4xx such as an unreadable `since`
             # is refused the same way every run until config.json changes, so
             # promising a retry told adopters to wait for a fix that never comes.
-            note_network_failure(f"hypothesis api rejected the request ({reason}); a retry "
-                                 "will not fix this — check config.json or run "
-                                 "scripts/doctor.py")
+            note_network_failure(
+                f"hypothesis api rejected the request ({reason}); a retry "
+                "will not fix this — check config.json or run "
+                "scripts/doctor.py"
+            )
         if not dry_run:
             record_health("api-error", detail=reason)
         return
@@ -623,13 +655,15 @@ def poll_once(dry_run):
         # The run that hit the ceiling already logged it; the ones after it
         # classify nothing and say so in the heartbeat, not in 288 log lines.
         if not dry_run:
-            record_health("budget", detail=f"daily ceiling ${MAX_DAILY_USD:.2f} reached; "
-                                           f"{len(fresh)} waiting")
+            record_health(
+                "budget", detail=f"daily ceiling ${MAX_DAILY_USD:.2f} reached; {len(fresh)} waiting"
+            )
         return
     fresh, deferred = cap_batch(fresh, MAX_PER_RUN)
-    log(f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
-        + (f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})"
-           if deferred else ""))
+    log(
+        f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
+        + (f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})" if deferred else "")
+    )
     fallbacks, spend, done = 0, 0.0, 0
     for ann in fresh:
         # Checked before each call, since a call's price is known only after it.
@@ -645,19 +679,30 @@ def poll_once(dry_run):
             CURSOR_FILE.write_text(json.dumps({"search_after": ann["updated"]}))
     held = len(fresh) - done
     if held:
-        log(f"daily spend ceiling reached (${MAX_DAILY_USD:.2f}); "
-            f"{held} annotation(s) wait for tomorrow (UTC)")
+        log(
+            f"daily spend ceiling reached (${MAX_DAILY_USD:.2f}); "
+            f"{held} annotation(s) wait for tomorrow (UTC)"
+        )
     if not dry_run:
         if MAP_FILE.exists():
             write_overview([json.loads(line) for line in MAP_FILE.open()])
         waiting = deferred + held
         if held:
-            record_health("budget", processed=done, fallbacks=fallbacks, cost_usd=spend,
-                          detail=f"daily ceiling ${MAX_DAILY_USD:.2f} reached; "
-                                 f"{waiting} waiting")
+            record_health(
+                "budget",
+                processed=done,
+                fallbacks=fallbacks,
+                cost_usd=spend,
+                detail=f"daily ceiling ${MAX_DAILY_USD:.2f} reached; {waiting} waiting",
+            )
         else:
-            record_health("ok", processed=done, fallbacks=fallbacks, cost_usd=spend,
-                          detail=f"{deferred} deferred to next run" if deferred else "")
+            record_health(
+                "ok",
+                processed=done,
+                fallbacks=fallbacks,
+                cost_usd=spend,
+                detail=f"{deferred} deferred to next run" if deferred else "",
+            )
 
 
 def cap_batch(fresh, limit):

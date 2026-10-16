@@ -33,12 +33,25 @@ DEFAULT_NODE = ROUTING.get("default_node", "inbox")
 
 ACTION_TAGS = (
     # prose & argument
-    "revision", "expansion", "condense", "restructure", "hedge",
-    "reframe", "exemplify", "counter", "define",
+    "revision",
+    "expansion",
+    "condense",
+    "restructure",
+    "hedge",
+    "reframe",
+    "exemplify",
+    "counter",
+    "define",
     # research & evidence
-    "cite", "evidence", "verify", "question", "synthesize",
+    "cite",
+    "evidence",
+    "verify",
+    "question",
+    "synthesize",
     # development objects
-    "bug", "feature", "a11y",
+    "bug",
+    "feature",
+    "a11y",
 )
 STATUS_TAGS = ("outstanding", "resolved")
 
@@ -160,7 +173,7 @@ def main():
             f.write(json.dumps(rec) + "\n")
     write_overview(records)
     print(f"mapped {len(records)} annotations -> {out}")
-    for node, count in sorted(Counter(r['node'] for r in records).items()):
+    for node, count in sorted(Counter(r["node"] for r in records).items()):
         print(f"  {count:4d}  {node}")
 
 

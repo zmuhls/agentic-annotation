@@ -31,13 +31,17 @@ class TestDrafts:
         # alongside it, which is what a preview needs before anything is written.
         _, routing = pair
         assert routing["group_nodes"] == {
-            "DISS01": "diss-reading/general", "TEACH1": "eng-2100-fall/general"}
+            "DISS01": "diss-reading/general",
+            "TEACH1": "eng-2100-fall/general",
+        }
 
     def test_every_node_the_routing_names_is_defined_in_the_ia(self, pair):
         ia_text, routing = pair
-        named = (set(routing["group_nodes"].values())
-                 | {o["node"] for o in routing["group_domain_overrides"]}
-                 | {routing["general_node"], routing["default_node"]})
+        named = (
+            set(routing["group_nodes"].values())
+            | {o["node"] for o in routing["group_domain_overrides"]}
+            | {routing["general_node"], routing["default_node"]}
+        )
         assert named <= bootstrap_ia.node_ids(ia_text)
 
     def test_ia_is_the_same_draft_bootstrap_ia_makes(self, pair):
@@ -80,8 +84,9 @@ class TestMain:
         monkeypatch.setattr(bootstrap_ia, "get", fake_get)
         monkeypatch.setattr(bootstrap, "IA_FILE", ia)
         monkeypatch.setattr(bootstrap, "ROUTING_FILE", tmp_path / "routing.json")
-        monkeypatch.setattr(bootstrap, "load_config",
-                            lambda: {"api_token": "test-token", "user": USER})
+        monkeypatch.setattr(
+            bootstrap, "load_config", lambda: {"api_token": "test-token", "user": USER}
+        )
         monkeypatch.setattr(sys, "argv", ["bootstrap.py", "--write", "--force"])
         return {"calls": calls, "ia": ia, "routing": tmp_path / "routing.json"}
 
@@ -121,10 +126,13 @@ class TestMain:
         assert env["calls"] == []
         assert not env["routing"].exists()
 
-    @pytest.mark.parametrize("config", [
-        {"api_token": "YOUR-TOKEN", "user": USER},
-        {"api_token": "test-token"},
-    ])
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"api_token": "YOUR-TOKEN", "user": USER},
+            {"api_token": "test-token"},
+        ],
+    )
     def test_incomplete_config_exits_before_any_call(self, env, monkeypatch, config):
         monkeypatch.setattr(bootstrap, "load_config", lambda: config)
         with pytest.raises(SystemExit):

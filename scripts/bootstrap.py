@@ -48,8 +48,10 @@ def summary(ia_text, routing):
     for gid in routing["general_groups"]:
         placed[gid] = routing["general_node"]
 
-    lines = [f"{IA_FILE.name}: {len(bootstrap_ia.node_ids(ia_text))} node(s)",
-             f"{ROUTING_FILE.name}:"]
+    lines = [
+        f"{IA_FILE.name}: {len(bootstrap_ia.node_ids(ia_text))} node(s)",
+        f"{ROUTING_FILE.name}:",
+    ]
     for gid, node in placed.items():
         lines.append(f"  {names.get(gid, gid)} → {node}")
         lines += [f"    {o['domain_contains']} → {o['node']}" for o in overrides.get(gid, [])]
@@ -79,14 +81,19 @@ def main():
 
     print("\n".join(summary(ia_text, routing)))
     if not write:
-        print(f"\n# {len(groups)} group(s), {len(annotations)} annotation(s) sampled; "
-              "re-run with --write --force to save both", file=sys.stderr)
+        print(
+            f"\n# {len(groups)} group(s), {len(annotations)} annotation(s) sampled; "
+            "re-run with --write --force to save both",
+            file=sys.stderr,
+        )
         return
     IA_FILE.write_text(ia_text)
     ROUTING_FILE.write_text(json.dumps(routing, indent=2) + "\n")
-    print(f"wrote {IA_FILE} and {ROUTING_FILE}; now edit each node's description in "
-          "ia.md, prune what you do not want, and re-run bootstrap_routing.py "
-          "--write --force if you rename nodes")
+    print(
+        f"wrote {IA_FILE} and {ROUTING_FILE}; now edit each node's description in "
+        "ia.md, prune what you do not want, and re-run bootstrap_routing.py "
+        "--write --force if you rename nodes"
+    )
 
 
 if __name__ == "__main__":

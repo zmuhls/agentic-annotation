@@ -39,6 +39,7 @@ def skeleton(groups, counts, known):
     `counts` is {group id: Counter(domain)} from the adopter's recent
     annotations; `known` is the set of node ids their ia.md defines.
     """
+
     def node(candidate):
         return candidate if candidate in known else "inbox"
 
@@ -47,17 +48,23 @@ def skeleton(groups, counts, known):
         gid = entry["id"]
         names[gid] = entry["name"]
         nodes[gid] = node(f"{entry['slug']}/general")
-        overrides += [{"group": gid, "domain_contains": domain, "node": child}
-                      for domain, _, child in entry["children"] if child in known]
+        overrides += [
+            {"group": gid, "domain_contains": domain, "node": child}
+            for domain, _, child in entry["children"]
+            if child in known
+        ]
     public = bootstrap_ia.busy_domains(counts.get("__world__", Counter()), "reading")
-    overrides += [{"group": "__world__", "domain_contains": domain, "node": child}
-                  for domain, _, child in public if child in known]
+    overrides += [
+        {"group": "__world__", "domain_contains": domain, "node": child}
+        for domain, _, child in public
+        if child in known
+    ]
     return {
         "_comment": "Drafted by scripts/bootstrap_routing.py from your groups, your "
-                    "recent annotations, and the nodes in architecture/ia.md. "
-                    "Anything ia.md did not define starts at 'inbox' — point it "
-                    "at a real node. See routing.example.json for the full "
-                    "schema and the order the tables are consulted in.",
+        "recent annotations, and the nodes in architecture/ia.md. "
+        "Anything ia.md did not define starts at 'inbox' — point it "
+        "at a real node. See routing.example.json for the full "
+        "schema and the order the tables are consulted in.",
         "group_names": names,
         "artifact_domains": {},
         "group_domain_overrides": overrides,
@@ -85,14 +92,19 @@ def main():
     unplaced = sum(n == "inbox" for n in routing["group_nodes"].values())
     if "--write" not in sys.argv:
         print(text, end="")
-        print(f"\n# {len(groups)} group(s), {unplaced} still at inbox; "
-              "re-run with --write to save to routing.json", file=sys.stderr)
+        print(
+            f"\n# {len(groups)} group(s), {unplaced} still at inbox; "
+            "re-run with --write to save to routing.json",
+            file=sys.stderr,
+        )
         return
     if OUT.exists() and "--force" not in sys.argv:
         sys.exit(f"{OUT.name} already exists — pass --force to overwrite")
     OUT.write_text(text)
-    print(f"wrote {OUT} with {len(groups)} group(s), {unplaced} still at inbox; "
-          "point those at nodes in ia.md")
+    print(
+        f"wrote {OUT} with {len(groups)} group(s), {unplaced} still at inbox; "
+        "point those at nodes in ia.md"
+    )
 
 
 if __name__ == "__main__":

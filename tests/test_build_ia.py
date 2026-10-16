@@ -49,8 +49,7 @@ class TestTitleOf:
 
 class TestQuoteOf:
     def test_normal_quote_selector(self):
-        ann = {"target": [{"selector": [
-            {"type": "TextQuoteSelector", "exact": "the passage"}]}]}
+        ann = {"target": [{"selector": [{"type": "TextQuoteSelector", "exact": "the passage"}]}]}
         assert quote_of(ann) == "the passage"
 
     def test_no_target(self):
@@ -110,20 +109,23 @@ class TestNodeFor:
         assert node_for(ann) == "dissertation/corpus"
 
     def test_group_node_mapping(self):
-        assert node_for({"uri": "https://elsewhere.example", "group": "DISS01"}) \
+        assert (
+            node_for({"uri": "https://elsewhere.example", "group": "DISS01"})
             == "dissertation/sources"
+        )
 
     def test_domain_contains_applies_without_a_group_rule(self):
-        assert node_for({"uri": "https://forum.example/r/x", "group": "ZZZ"}) \
-            == "dissertation/corpus"
+        assert (
+            node_for({"uri": "https://forum.example/r/x", "group": "ZZZ"}) == "dissertation/corpus"
+        )
 
     def test_exact_domain_mapping(self):
-        assert node_for({"uri": "https://papers.example/2401", "group": "ZZZ"}) \
-            == "reading/ai-ml"
+        assert node_for({"uri": "https://papers.example/2401", "group": "ZZZ"}) == "reading/ai-ml"
 
     def test_general_group(self):
-        assert node_for({"uri": "https://elsewhere.example", "group": "MISC01"}) \
-            == "reading/general"
+        assert (
+            node_for({"uri": "https://elsewhere.example", "group": "MISC01"}) == "reading/general"
+        )
 
     def test_unknown_falls_to_default_node(self):
         assert node_for({"uri": "https://elsewhere.example", "group": "ZZZ"}) == "inbox"
@@ -135,8 +137,13 @@ class TestNodeFor:
 class TestRoutingDefaults:
     def test_empty_routing_sends_everything_to_the_default_node(self, monkeypatch):
         # a clone with no routing.json at all must still classify, not crash
-        for name in ("ARTIFACT_DOMAINS", "GROUP_NODES", "DOMAIN_CONTAINS",
-                     "DOMAIN_NODES", "GROUP_NAMES"):
+        for name in (
+            "ARTIFACT_DOMAINS",
+            "GROUP_NODES",
+            "DOMAIN_CONTAINS",
+            "DOMAIN_NODES",
+            "GROUP_NAMES",
+        ):
             monkeypatch.setattr(build_ia, name, {})
         monkeypatch.setattr(build_ia, "GROUP_DOMAIN_OVERRIDES", [])
         monkeypatch.setattr(build_ia, "GENERAL_GROUPS", frozenset())
@@ -145,6 +152,7 @@ class TestRoutingDefaults:
     def test_routing_file_on_disk_parses(self):
         # routing.json locally, routing.example.json on a fresh clone / in CI
         from appconfig import load_json_with_example
+
         routing = load_json_with_example("routing")
         assert routing["default_node"]
         assert isinstance(routing["group_names"], dict)
@@ -166,10 +174,15 @@ class TestGroupNameFor:
 class TestRecordFor:
     def test_freshly_created_annotation_does_not_crash(self):
         # document=[], no target, no tags — the mid-creation shape
-        rec = record_for({
-            "id": "abc", "document": [], "tags": [], "target": [],
-            "uri": "https://mysite.example/x",
-        })
+        rec = record_for(
+            {
+                "id": "abc",
+                "document": [],
+                "tags": [],
+                "target": [],
+                "uri": "https://mysite.example/x",
+            }
+        )
         assert rec["id"] == "abc"
         assert rec["title"] == ""
         assert rec["node"] == "artifacts/personal-site"

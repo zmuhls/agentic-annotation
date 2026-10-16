@@ -25,8 +25,13 @@ DEFAULT_INTERVAL = 300
 
 def launchd_plist(label, python, interval):
     """launchd wants an absolute PATH: agents inherit almost no environment."""
-    path_entries = [str(Path(python).parent), "/usr/local/bin", "/usr/bin", "/bin",
-                    str(Path.home() / ".local" / "bin")]
+    path_entries = [
+        str(Path(python).parent),
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        str(Path.home() / ".local" / "bin"),
+    ]
     seen, path = set(), []
     for entry in path_entries:
         if entry not in seen:
@@ -77,8 +82,10 @@ WantedBy=timers.target
 def cron_line(python, interval):
     minutes = max(1, interval // 60)
     step = f"*/{minutes}" if minutes < 60 else "0"
-    return (f"{step} * * * * cd {ROOT} && {python} scripts/poll.py "
-            f">> {ROOT / 'logs' / 'launchd.log'} 2>&1\n")
+    return (
+        f"{step} * * * * cd {ROOT} && {python} scripts/poll.py "
+        f">> {ROOT / 'logs' / 'launchd.log'} 2>&1\n"
+    )
 
 
 def check_interpreter(python, writing, allow_missing):
@@ -96,7 +103,8 @@ def check_interpreter(python, writing, allow_missing):
         raise SystemExit(
             f"{message} — the scheduler would fail to start the watcher. Pass a "
             "present interpreter, or --allow-missing-python if you are "
-            "generating this unit for another machine.")
+            "generating this unit for another machine."
+        )
     print(f"warning: {message}", file=sys.stderr)
 
 
@@ -113,21 +121,31 @@ def write_file(path, text, force):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--target", choices=("launchd", "systemd", "cron"),
-                    default=default_target())
-    ap.add_argument("--label", default=os.environ.get("WATCHER_LABEL", DEFAULT_LABEL),
-                    help=f"unit name / launchd label (default {DEFAULT_LABEL})")
-    ap.add_argument("--python", default=sys.executable,
-                    help="interpreter to run poll.py with (default: this one)")
-    ap.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,
-                    help="seconds between polls (default 300)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--target", choices=("launchd", "systemd", "cron"), default=default_target())
+    ap.add_argument(
+        "--label",
+        default=os.environ.get("WATCHER_LABEL", DEFAULT_LABEL),
+        help=f"unit name / launchd label (default {DEFAULT_LABEL})",
+    )
+    ap.add_argument(
+        "--python",
+        default=sys.executable,
+        help="interpreter to run poll.py with (default: this one)",
+    )
+    ap.add_argument(
+        "--interval", type=int, default=DEFAULT_INTERVAL, help="seconds between polls (default 300)"
+    )
     ap.add_argument("--write", action="store_true", help="install, don't just print")
     ap.add_argument("--force", action="store_true", help="overwrite an existing unit")
-    ap.add_argument("--allow-missing-python", action="store_true",
-                    help="install even if --python is not on this machine "
-                         "(for units generated for another host)")
+    ap.add_argument(
+        "--allow-missing-python",
+        action="store_true",
+        help="install even if --python is not on this machine "
+        "(for units generated for another host)",
+    )
     args = ap.parse_args(argv)
 
     label, python, interval = args.label, args.python, args.interval
@@ -138,10 +156,13 @@ def main(argv=None):
         if not args.write:
             print(text, end="")
             return 0
-        dest = write_file(Path.home() / "Library" / "LaunchAgents" / f"{label}.plist",
-                          text, args.force)
-        print(f"wrote {dest}\n\nload it:\n  launchctl load {dest}\n"
-              f"\nlater, to pause:\n  launchctl unload {dest}")
+        dest = write_file(
+            Path.home() / "Library" / "LaunchAgents" / f"{label}.plist", text, args.force
+        )
+        print(
+            f"wrote {dest}\n\nload it:\n  launchctl load {dest}\n"
+            f"\nlater, to pause:\n  launchctl unload {dest}"
+        )
     elif args.target == "systemd":
         units = systemd_units(label, python, interval)
         if not args.write:
@@ -151,15 +172,19 @@ def main(argv=None):
         base = Path.home() / ".config" / "systemd" / "user"
         for name, text in units.items():
             print(f"wrote {write_file(base / name, text, args.force)}")
-        print(f"\nenable it:\n  systemctl --user daemon-reload\n"
-              f"  systemctl --user enable --now {label}.timer\n"
-              f"  systemctl --user list-timers {label}.timer")
+        print(
+            f"\nenable it:\n  systemctl --user daemon-reload\n"
+            f"  systemctl --user enable --now {label}.timer\n"
+            f"  systemctl --user list-timers {label}.timer"
+        )
     else:
         line = cron_line(python, interval)
         print(line, end="")
         if args.write:
-            print("\nadd it with `crontab -e` — this script will not edit your "
-                  "crontab for you.", file=sys.stderr)
+            print(
+                "\nadd it with `crontab -e` — this script will not edit your crontab for you.",
+                file=sys.stderr,
+            )
     return 0
 
 

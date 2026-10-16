@@ -20,8 +20,16 @@ import poll  # noqa: E402
 
 # module-level path attributes on `poll` that any test run may write to
 _WRITE_PATHS = (
-    "LOG_FILE", "STDOUT_LOG", "MAP_FILE", "SEEN_FILE", "CURSOR_FILE",
-    "ACTIONS_DIR", "EMERGENT_FILE", "LOCK_FILE", "NETFAIL_FILE", "HEALTH_FILE",
+    "LOG_FILE",
+    "STDOUT_LOG",
+    "MAP_FILE",
+    "SEEN_FILE",
+    "CURSOR_FILE",
+    "ACTIONS_DIR",
+    "EMERGENT_FILE",
+    "LOCK_FILE",
+    "NETFAIL_FILE",
+    "HEALTH_FILE",
 )
 
 
@@ -52,11 +60,9 @@ _ROUTING = {
     "GROUP_NAMES": {"__world__": "Public", "DISS01": "diss"},
     "ARTIFACT_DOMAINS": {"mysite.example": "artifacts/personal-site"},
     "GROUP_DOMAIN_OVERRIDES": [
-        {"group": "DISS01", "domain_contains": "forum.example",
-         "node": "dissertation/corpus"},
+        {"group": "DISS01", "domain_contains": "forum.example", "node": "dissertation/corpus"},
     ],
-    "GROUP_NODES": {"DISS01": "dissertation/sources",
-                    "TEACH1": "teaching/writing-courses"},
+    "GROUP_NODES": {"DISS01": "dissertation/sources", "TEACH1": "teaching/writing-courses"},
     "DOMAIN_CONTAINS": {"forum.example": "dissertation/corpus"},
     "DOMAIN_NODES": {"papers.example": "reading/ai-ml"},
     "GENERAL_GROUPS": frozenset({"__world__", "MISC01"}),

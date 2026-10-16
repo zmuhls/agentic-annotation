@@ -26,17 +26,25 @@ KNOWN = bootstrap_ia.node_ids(DRAFT)
 
 class TestNodeIds:
     def test_reads_headings_and_children_from_the_nodes_section(self):
-        assert {"diss-reading", "diss-reading/forum-example", "diss-reading/general",
-                "eng-2100-fall/general", "reading/news-example", "reading/general",
-                "inbox"} <= KNOWN
+        assert {
+            "diss-reading",
+            "diss-reading/forum-example",
+            "diss-reading/general",
+            "eng-2100-fall/general",
+            "reading/news-example",
+            "reading/general",
+            "inbox",
+        } <= KNOWN
 
     def test_the_shared_tail_defines_no_nodes(self):
         assert "architecture/map.jsonl" not in KNOWN
         assert "revision" not in KNOWN
 
     def test_reads_a_hand_written_taxonomy_too(self):
-        text = ("## Nodes\n\n### artifacts — notes on your own work\n\n"
-                "- `artifacts/site` — a site\n\n## Action vocabulary\n")
+        text = (
+            "## Nodes\n\n### artifacts — notes on your own work\n\n"
+            "- `artifacts/site` — a site\n\n## Action vocabulary\n"
+        )
         assert bootstrap_ia.node_ids(text) == {"artifacts", "artifacts/site"}
 
     def test_a_file_without_a_nodes_section_defines_nothing(self):
@@ -50,30 +58,42 @@ class TestSkeleton:
 
     def test_names_every_group(self, drafted):
         assert drafted["group_names"] == {
-            "__world__": "Public", "DISS01": "Diss Reading", "TEACH1": "ENG 2100 / Fall"}
+            "__world__": "Public",
+            "DISS01": "Diss Reading",
+            "TEACH1": "ENG 2100 / Fall",
+        }
 
     def test_each_group_points_at_its_drafted_general_node(self, drafted):
         assert drafted["group_nodes"] == {
-            "DISS01": "diss-reading/general", "TEACH1": "eng-2100-fall/general"}
+            "DISS01": "diss-reading/general",
+            "TEACH1": "eng-2100-fall/general",
+        }
 
     def test_busy_domains_route_to_their_child_nodes(self, drafted):
         assert drafted["group_domain_overrides"] == [
-            {"group": "DISS01", "domain_contains": "forum.example",
-             "node": "diss-reading/forum-example"},
-            {"group": "__world__", "domain_contains": "news.example",
-             "node": "reading/news-example"},
+            {
+                "group": "DISS01",
+                "domain_contains": "forum.example",
+                "node": "diss-reading/forum-example",
+            },
+            {
+                "group": "__world__",
+                "domain_contains": "news.example",
+                "node": "reading/news-example",
+            },
         ]
 
     def test_names_only_nodes_the_taxonomy_defines(self, drafted):
-        named = (set(drafted["group_nodes"].values())
-                 | {rule["node"] for rule in drafted["group_domain_overrides"]}
-                 | {drafted["general_node"], drafted["default_node"]})
+        named = (
+            set(drafted["group_nodes"].values())
+            | {rule["node"] for rule in drafted["group_domain_overrides"]}
+            | {drafted["general_node"], drafted["default_node"]}
+        )
         assert named <= KNOWN
 
     def test_falls_back_to_inbox_against_someone_elses_taxonomy(self):
         # bootstrap_ia.py never ran: ia.md still holds the template's nodes
-        drafted = bootstrap_routing.skeleton(
-            GROUPS, COUNTS, bootstrap_ia.node_ids(TEMPLATE))
+        drafted = bootstrap_routing.skeleton(GROUPS, COUNTS, bootstrap_ia.node_ids(TEMPLATE))
         assert set(drafted["group_nodes"].values()) == {"inbox"}
         assert drafted["group_domain_overrides"] == []
         assert drafted["general_node"] == "inbox"
@@ -97,15 +117,20 @@ class TestDraftRoutesThroughNodeFor:
                 value = frozenset(value)
             monkeypatch.setattr(build_ia, key.upper(), value)
 
-    @pytest.mark.parametrize("ann, node", [
-        ({"group": "DISS01", "uri": "https://www.forum.example/a"},
-         "diss-reading/forum-example"),
-        ({"group": "DISS01", "uri": "https://papers.example/c"}, "diss-reading/general"),
-        ({"group": "TEACH1", "uri": ""}, "eng-2100-fall/general"),
-        ({"group": "__world__", "uri": "https://news.example/d"}, "reading/news-example"),
-        ({"group": "__world__", "uri": "https://elsewhere.example/"}, "reading/general"),
-        ({"group": "JOINED1", "uri": "https://elsewhere.example/"}, "inbox"),
-    ])
+    @pytest.mark.parametrize(
+        "ann, node",
+        [
+            (
+                {"group": "DISS01", "uri": "https://www.forum.example/a"},
+                "diss-reading/forum-example",
+            ),
+            ({"group": "DISS01", "uri": "https://papers.example/c"}, "diss-reading/general"),
+            ({"group": "TEACH1", "uri": ""}, "eng-2100-fall/general"),
+            ({"group": "__world__", "uri": "https://news.example/d"}, "reading/news-example"),
+            ({"group": "__world__", "uri": "https://elsewhere.example/"}, "reading/general"),
+            ({"group": "JOINED1", "uri": "https://elsewhere.example/"}, "inbox"),
+        ],
+    )
     def test_node_for(self, ann, node):
         assert build_ia.node_for(ann) == node
 
@@ -128,8 +153,11 @@ class TestMain:
         monkeypatch.setattr(bootstrap_ia, "get", fake_get)
         monkeypatch.setattr(bootstrap_routing, "IA_FILE", ia)
         monkeypatch.setattr(bootstrap_routing, "OUT", tmp_path / "routing.json")
-        monkeypatch.setattr(bootstrap_routing, "load_config", lambda: {
-            "api_token": "test-token", "user": "acct:new@hypothes.is"})
+        monkeypatch.setattr(
+            bootstrap_routing,
+            "load_config",
+            lambda: {"api_token": "test-token", "user": "acct:new@hypothes.is"},
+        )
         monkeypatch.setattr(sys, "argv", ["bootstrap_routing.py", "--write"])
         return {"calls": calls, "out": tmp_path / "routing.json", "ia": ia}
 
@@ -146,8 +174,7 @@ class TestMain:
         assert set(written["group_nodes"].values()) == {"inbox"}
 
     def test_without_a_user_the_sample_is_skipped(self, env, monkeypatch):
-        monkeypatch.setattr(bootstrap_routing, "load_config",
-                            lambda: {"api_token": "test-token"})
+        monkeypatch.setattr(bootstrap_routing, "load_config", lambda: {"api_token": "test-token"})
         bootstrap_routing.main()
         assert env["calls"] == ["profile/groups"]
         assert json.loads(env["out"].read_text())["group_domain_overrides"] == []
@@ -165,8 +192,7 @@ class TestMain:
         assert not env["out"].exists()
 
     def test_a_placeholder_token_exits_before_any_call(self, env, monkeypatch):
-        monkeypatch.setattr(bootstrap_routing, "load_config",
-                            lambda: {"api_token": "YOUR-TOKEN"})
+        monkeypatch.setattr(bootstrap_routing, "load_config", lambda: {"api_token": "YOUR-TOKEN"})
         with pytest.raises(SystemExit):
             bootstrap_routing.main()
         assert env["calls"] == []

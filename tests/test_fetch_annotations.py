@@ -18,10 +18,12 @@ import poll  # noqa: E402
 from test_poll import REJECTED_BODY, _FakeSearch, _http_error  # noqa: E402
 
 # a1 and a2 share a millisecond, so a two-row page ends inside it
-CREATED = ["2026-09-20T00:00:00.100000+00:00",
-           "2026-09-20T00:00:01.500100+00:00",
-           "2026-09-20T00:00:01.500900+00:00",
-           "2026-09-20T00:00:02.000000+00:00"]
+CREATED = [
+    "2026-09-20T00:00:00.100000+00:00",
+    "2026-09-20T00:00:01.500100+00:00",
+    "2026-09-20T00:00:01.500900+00:00",
+    "2026-09-20T00:00:02.000000+00:00",
+]
 
 
 def _rows():
@@ -31,9 +33,15 @@ def _rows():
 @pytest.fixture(autouse=True)
 def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(fetch_annotations, "OUT", tmp_path / "annotations.jsonl")
-    monkeypatch.setattr(poll, "CONFIG", {"api_token": "test-token",
-                                         "user": "acct:new@hypothes.is",
-                                         "since": "2026-09-19T00:00:00.000000+00:00"})
+    monkeypatch.setattr(
+        poll,
+        "CONFIG",
+        {
+            "api_token": "test-token",
+            "user": "acct:new@hypothes.is",
+            "since": "2026-09-19T00:00:00.000000+00:00",
+        },
+    )
 
 
 def _written():
@@ -57,7 +65,9 @@ class TestBackfill:
 
     def test_no_since_pulls_the_whole_history(self, monkeypatch):
         asked = []
-        monkeypatch.setattr(poll, "search", lambda params, **kw: asked.append(params) or {"rows": []})
+        monkeypatch.setattr(
+            poll, "search", lambda params, **kw: asked.append(params) or {"rows": []}
+        )
         monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG, "since": None})
         fetch_annotations.main()
         assert asked[0]["search_after"] < "1970-01-01"
@@ -92,8 +102,9 @@ class TestBackfill:
             fetch_annotations.main()
 
     def test_a_placeholder_token_exits_before_any_call(self, monkeypatch):
-        monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG,
-                                             "api_token": "YOUR-HYPOTHESIS-DEVELOPER-TOKEN"})
+        monkeypatch.setattr(
+            poll, "CONFIG", {**poll.CONFIG, "api_token": "YOUR-HYPOTHESIS-DEVELOPER-TOKEN"}
+        )
         monkeypatch.setattr(poll, "search", lambda *a, **k: pytest.fail("called the api"))
         with pytest.raises(SystemExit, match="api_token"):
             fetch_annotations.main()

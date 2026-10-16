@@ -31,46 +31,53 @@ def _wrap(result_text):
 class TestCallSonnet:
     def test_parses_clean_json_object(self, monkeypatch):
         payload = {"node": "inbox", "new_node": False, "role": "r", "actions": []}
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=_wrap(json.dumps(payload))))
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=_wrap(json.dumps(payload)))
+        )
         assert poll.call_sonnet("prompt") == payload
 
     def test_strips_prose_around_json(self, monkeypatch):
         text = 'Sure!\n{"node": "inbox", "actions": []}\nHope that helps.'
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=_wrap(text)))
+        monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=_wrap(text)))
         assert poll.call_sonnet("prompt")["node"] == "inbox"
 
     def test_handles_list_envelope(self, monkeypatch):
         # some CLI versions emit a list of message objects
-        envelope = json.dumps([
-            {"type": "system"},
-            {"type": "result", "result": '{"node": "reading/general", "actions": []}'},
-        ])
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=envelope))
+        envelope = json.dumps(
+            [
+                {"type": "system"},
+                {"type": "result", "result": '{"node": "reading/general", "actions": []}'},
+            ]
+        )
+        monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=envelope))
         assert poll.call_sonnet("prompt")["node"] == "reading/general"
 
     def test_raises_on_nonzero_exit(self, monkeypatch):
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(returncode=1, stderr="boom"))
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1, stderr="boom")
+        )
         monkeypatch.setattr(poll.time, "sleep", lambda *a: None)  # no real wait
         with pytest.raises(RuntimeError, match="claude exited 1: boom"):
             poll.call_sonnet("prompt", attempts=1)
 
     def test_reports_the_stdout_envelope_when_stderr_is_empty(self, monkeypatch):
         # the CLI's real failure shape: exit 1, empty stderr, reason in stdout
-        envelope = json.dumps([{"type": "result", "is_error": True,
-                                "result": "Overloaded"}])
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(returncode=1, stdout=envelope))
+        envelope = json.dumps([{"type": "result", "is_error": True, "result": "Overloaded"}])
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1, stdout=envelope)
+        )
         monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
         with pytest.raises(RuntimeError, match="Overloaded"):
             poll.call_sonnet("prompt", attempts=1)
 
     def test_auth_failure_fails_fast_without_retrying(self, monkeypatch):
-        envelope = json.dumps({"type": "result", "is_error": True,
-                               "result": "Failed to authenticate: OAuth session expired"})
+        envelope = json.dumps(
+            {
+                "type": "result",
+                "is_error": True,
+                "result": "Failed to authenticate: OAuth session expired",
+            }
+        )
         calls = []
 
         def run(*a, **k):
@@ -78,22 +85,23 @@ class TestCallSonnet:
             return FakeProc(returncode=1, stdout=envelope)
 
         monkeypatch.setattr(poll.subprocess, "run", run)
-        monkeypatch.setattr(poll.time, "sleep",
-                            lambda *a: pytest.fail("must not sleep on an auth failure"))
+        monkeypatch.setattr(
+            poll.time, "sleep", lambda *a: pytest.fail("must not sleep on an auth failure")
+        )
         with pytest.raises(RuntimeError, match="not authenticated"):
             poll.call_sonnet("prompt", attempts=3)
         assert len(calls) == 1
 
     def test_error_text_without_any_output(self, monkeypatch):
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(returncode=1))
+        monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1))
         monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
         with pytest.raises(RuntimeError, match="no output"):
             poll.call_sonnet("prompt", attempts=1)
 
     def test_raises_when_no_json(self, monkeypatch):
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=_wrap("no json here")))
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=_wrap("no json here"))
+        )
         with pytest.raises(ValueError, match="no JSON"):
             poll.call_sonnet("prompt")
 
@@ -101,13 +109,15 @@ class TestCallSonnet:
 def sample_annotation(**over):
     """One annotation in the shape /api/search returns, for process() tests."""
     base = {
-        "id": "test1", "uri": "https://mysite.example/x",
-        "document": {"title": ["T"]}, "tags": ["revision"],
-        "target": [{"selector": [
-            {"type": "TextQuoteSelector", "exact": "quoted bit"}]}],
+        "id": "test1",
+        "uri": "https://mysite.example/x",
+        "document": {"title": ["T"]},
+        "tags": ["revision"],
+        "target": [{"selector": [{"type": "TextQuoteSelector", "exact": "quoted bit"}]}],
         "created": "2026-07-15T00:00:00+00:00",
         "updated": "2026-07-15T00:00:00+00:00",
-        "group": "__world__", "links": {"incontext": "https://hyp.is/x"},
+        "group": "__world__",
+        "links": {"incontext": "https://hyp.is/x"},
     }
     base.update(over)
     return base
@@ -118,10 +128,15 @@ class TestProcess:
     _ann = staticmethod(sample_annotation)
 
     def test_dry_run_uses_model_result(self, monkeypatch):
-        monkeypatch.setattr(poll, "call_sonnet", lambda p, **kw: {
-            "node": "artifacts/personal-site", "role": "does a thing",
-            "actions": [{"type": "revision", "instructions": "do it"}],
-        })
+        monkeypatch.setattr(
+            poll,
+            "call_sonnet",
+            lambda p, **kw: {
+                "node": "artifacts/personal-site",
+                "role": "does a thing",
+                "actions": [{"type": "revision", "instructions": "do it"}],
+            },
+        )
         rec = poll.process(self._ann(), dry_run=True)
         assert rec["node"] == "artifacts/personal-site"
         assert rec["role"] == "does a thing"
@@ -130,6 +145,7 @@ class TestProcess:
     def test_falls_back_to_rules_on_model_error(self, monkeypatch):
         def boom(_, **kw):
             raise RuntimeError("api down")
+
         monkeypatch.setattr(poll, "call_sonnet", boom)
         rec = poll.process(self._ann(), dry_run=True)
         assert rec["classified_by"] == "rules-fallback"
@@ -139,9 +155,9 @@ class TestProcess:
         # document=[] mid-creation shape + model error → must still return a record
         def boom(_, **kw):
             raise RuntimeError("api down")
+
         monkeypatch.setattr(poll, "call_sonnet", boom)
-        rec = poll.process(self._ann(document=[], target=[], tags=[]),
-                          dry_run=True)
+        rec = poll.process(self._ann(document=[], target=[], tags=[]), dry_run=True)
         assert rec["classified_by"] == "rules-fallback"
         assert rec["title"] == ""
 
@@ -179,10 +195,13 @@ class TestSearchRetries:
             return False
 
     def test_retries_transient_oserror_then_succeeds(self, monkeypatch):
-        calls = self._urlopen(monkeypatch, [
-            ConnectionResetError(54, "Connection reset by peer"),
-            self._Resp({"rows": [{"id": "a"}]}),
-        ])
+        calls = self._urlopen(
+            monkeypatch,
+            [
+                ConnectionResetError(54, "Connection reset by peer"),
+                self._Resp({"rows": [{"id": "a"}]}),
+            ],
+        )
         assert poll.search({})["rows"] == [{"id": "a"}]
         assert len(calls) == 2
 
@@ -208,12 +227,14 @@ class TestSearchRetries:
 
 # The body /api/search sent back for search_after=garbage (probed live), line
 # breaks and leading ": " included.
-REJECTED_BODY = json.dumps({
-    "status": "failure",
-    "reason": ": search_after must be a parsable date in the form\n"
-              "                    yyyy-MM-dd'T'HH:mm:ss.SSX\n"
-              "                    or time in miliseconds since the epoch.",
-}).encode()
+REJECTED_BODY = json.dumps(
+    {
+        "status": "failure",
+        "reason": ": search_after must be a parsable date in the form\n"
+        "                    yyyy-MM-dd'T'HH:mm:ss.SSX\n"
+        "                    or time in miliseconds since the epoch.",
+    }
+).encode()
 
 
 def _http_error(code, msg, body=None):
@@ -224,9 +245,11 @@ def _http_error(code, msg, body=None):
 class TestApiReason:
     def test_reads_the_reason_the_api_gives(self):
         reason = poll.api_reason(_http_error(400, "Bad Request", REJECTED_BODY))
-        assert reason == ("400 Bad Request: search_after must be a parsable date in the "
-                          "form yyyy-MM-dd'T'HH:mm:ss.SSX or time in miliseconds since "
-                          "the epoch.")
+        assert reason == (
+            "400 Bad Request: search_after must be a parsable date in the "
+            "form yyyy-MM-dd'T'HH:mm:ss.SSX or time in miliseconds since "
+            "the epoch."
+        )
 
     def test_a_body_that_is_not_json_falls_back_to_the_status(self):
         assert poll.api_reason(_http_error(502, "Bad Gateway", b"<html>")) == "502 Bad Gateway"
@@ -274,8 +297,8 @@ class TestTrimLog:
 
         text = path.read_text()
         assert path.stat().st_size < 1000
-        assert "entry 01999" in text            # newest entries survive
-        assert "entry 00000" not in text        # oldest are gone
+        assert "entry 01999" in text  # newest entries survive
+        assert "entry 00000" not in text  # oldest are gone
         assert "trimmed" in text.splitlines()[0]
         body = text.split("\n", 1)[1]
         assert all(line.startswith("entry ") for line in body.splitlines())
@@ -313,6 +336,7 @@ class TestHeartbeat:
     def test_records_an_unreachable_api(self, monkeypatch):
         def boom(cursor):
             raise OSError("dns went away")
+
         monkeypatch.setattr(poll, "fetch_new", boom)
         poll.main()
         health = self._health()
@@ -321,8 +345,8 @@ class TestHeartbeat:
 
     def test_records_an_api_error_status(self, monkeypatch):
         def boom(cursor):
-            raise poll.urllib.error.HTTPError(
-                "http://x", 401, "Unauthorized", {}, None)
+            raise poll.urllib.error.HTTPError("http://x", 401, "Unauthorized", {}, None)
+
         monkeypatch.setattr(poll, "fetch_new", boom)
         poll.main()
         assert self._health()["status"] == "api-error"
@@ -331,6 +355,7 @@ class TestHeartbeat:
         # a bare "400 Bad Request" sends an adopter guessing; the body names the field
         def rejected(cursor):
             raise _http_error(400, "Bad Request", REJECTED_BODY)
+
         monkeypatch.setattr(poll, "fetch_new", rejected)
         poll.main()
         assert "search_after must be a parsable date" in self._health()["detail"]
@@ -341,6 +366,7 @@ class TestHeartbeat:
         # "retrying next run" sent adopters waiting for a self-heal
         def unauthorized(cursor):
             raise _http_error(401, "Unauthorized")
+
         monkeypatch.setattr(poll, "fetch_new", unauthorized)
         poll.main()
         log = poll.LOG_FILE.read_text()
@@ -351,6 +377,7 @@ class TestHeartbeat:
     def test_a_server_error_that_outlasts_the_retries_still_says_retrying(self, monkeypatch):
         def unavailable(cursor):
             raise _http_error(503, "Service Unavailable")
+
         monkeypatch.setattr(poll, "fetch_new", unavailable)
         poll.main()
         log = poll.LOG_FILE.read_text()
@@ -359,13 +386,19 @@ class TestHeartbeat:
         assert self._health()["status"] == "api-error"
 
     def test_counts_annotations_that_took_the_rules_fallback(self, monkeypatch):
-        rows = [{"id": "a1", "updated": "2026-09-20T00:00:00+00:00"},
-                {"id": "a2", "updated": "2026-09-20T00:01:00+00:00"}]
+        rows = [
+            {"id": "a1", "updated": "2026-09-20T00:00:00+00:00"},
+            {"id": "a2", "updated": "2026-09-20T00:01:00+00:00"},
+        ]
         monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
-        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: {
-            "id": ann["id"],
-            "classified_by": "rules-fallback" if ann["id"] == "a2" else poll.MODEL,
-        })
+        monkeypatch.setattr(
+            poll,
+            "process",
+            lambda ann, dry_run=False: {
+                "id": ann["id"],
+                "classified_by": "rules-fallback" if ann["id"] == "a2" else poll.MODEL,
+            },
+        )
         poll.main()
         health = self._health()
         assert health["processed"] == 2
@@ -378,8 +411,7 @@ class TestHeartbeat:
         assert not poll.HEALTH_FILE.exists()
 
     def test_a_poll_that_could_not_take_the_lock_does_not_stamp(self, monkeypatch):
-        monkeypatch.setattr(poll, "fetch_new",
-                            lambda cursor: pytest.fail("must not poll"))
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: pytest.fail("must not poll"))
         held = poll.LOCK_FILE.open("w")
         poll.fcntl.flock(held, poll.fcntl.LOCK_EX | poll.fcntl.LOCK_NB)
         try:
@@ -422,6 +454,7 @@ class TestInterruptedAndFailedRuns:
     def test_an_unhandled_crash_is_recorded_not_swallowed(self, monkeypatch):
         def boom(dry_run):
             raise RuntimeError("map.jsonl is truncated")
+
         monkeypatch.setattr(poll, "poll_once", boom)
         with pytest.raises(SystemExit) as exc:
             poll.main()
@@ -431,8 +464,7 @@ class TestInterruptedAndFailedRuns:
         assert "map.jsonl is truncated" in health["detail"]
 
     def test_a_crash_logs_the_traceback(self, monkeypatch):
-        monkeypatch.setattr(poll, "poll_once",
-                            lambda dry_run: 1 // 0)
+        monkeypatch.setattr(poll, "poll_once", lambda dry_run: 1 // 0)
         with pytest.raises(SystemExit):
             poll.main()
         text = poll.LOG_FILE.read_text()
@@ -441,16 +473,14 @@ class TestInterruptedAndFailedRuns:
 
     def test_a_crashing_dry_run_leaves_no_heartbeat(self, monkeypatch):
         monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
-        monkeypatch.setattr(poll, "poll_once",
-                            lambda dry_run: 1 // 0)
+        monkeypatch.setattr(poll, "poll_once", lambda dry_run: 1 // 0)
         with pytest.raises(SystemExit):
             poll.main()
         assert not poll.HEALTH_FILE.exists()
 
     def test_a_real_run_registers_both_handlers(self, monkeypatch):
         installed = []
-        monkeypatch.setattr(poll.signal, "signal",
-                            lambda sig, handler: installed.append(sig))
+        monkeypatch.setattr(poll.signal, "signal", lambda sig, handler: installed.append(sig))
         monkeypatch.setattr(poll, "fetch_new", lambda cursor: [])
         poll.main()
         assert set(installed) == {poll.signal.SIGTERM, poll.signal.SIGINT}
@@ -469,28 +499,30 @@ class TestCostVisibility:
         return json.loads(poll.HEALTH_FILE.read_text())
 
     def test_meta_is_filled_from_the_dict_envelope(self, monkeypatch):
-        envelope = json.dumps({"type": "result", "result": '{"node": "inbox"}',
-                               "total_cost_usd": 0.0937})
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=envelope))
+        envelope = json.dumps(
+            {"type": "result", "result": '{"node": "inbox"}', "total_cost_usd": 0.0937}
+        )
+        monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=envelope))
         meta = {}
         assert poll.call_sonnet("prompt", meta=meta)["node"] == "inbox"
         assert meta["cost_usd"] == 0.0937
 
     def test_meta_is_filled_from_the_list_envelope(self, monkeypatch):
-        envelope = json.dumps([
-            {"type": "system"},
-            {"type": "result", "result": '{"node": "inbox"}', "total_cost_usd": 0.12},
-        ])
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=envelope))
+        envelope = json.dumps(
+            [
+                {"type": "system"},
+                {"type": "result", "result": '{"node": "inbox"}', "total_cost_usd": 0.12},
+            ]
+        )
+        monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=envelope))
         meta = {}
         poll.call_sonnet("prompt", meta=meta)
         assert meta["cost_usd"] == 0.12
 
     def test_a_cli_that_reports_no_cost_is_not_an_error(self, monkeypatch):
-        monkeypatch.setattr(poll.subprocess, "run",
-                            lambda *a, **k: FakeProc(stdout=_wrap('{"node": "inbox"}')))
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(stdout=_wrap('{"node": "inbox"}'))
+        )
         meta = {}
         poll.call_sonnet("prompt", meta=meta)
         assert meta["cost_usd"] is None
@@ -499,6 +531,7 @@ class TestCostVisibility:
         def priced(prompt, meta=None, **kw):
             meta["cost_usd"] = 0.0821
             return {"node": "inbox", "role": "r", "actions": []}
+
         monkeypatch.setattr(poll, "call_sonnet", priced)
         rec = poll.process(sample_annotation(), dry_run=True)
         assert rec["cost_usd"] == 0.0821
@@ -506,6 +539,7 @@ class TestCostVisibility:
     def test_a_rules_fallback_carries_no_cost(self, monkeypatch):
         def boom(prompt, meta=None, **kw):
             raise RuntimeError("api down")
+
         monkeypatch.setattr(poll, "call_sonnet", boom)
         rec = poll.process(sample_annotation(), dry_run=True)
         assert "cost_usd" not in rec
@@ -552,12 +586,16 @@ class TestBatchCap:
         assert deferred == 2
 
     def test_the_cursor_stops_at_the_last_processed_row(self, monkeypatch):
-        rows = _rows("2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00",
-                     "2026-09-20T00:02:00+00:00")
+        rows = _rows(
+            "2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00", "2026-09-20T00:02:00+00:00"
+        )
         monkeypatch.setattr(poll, "MAX_PER_RUN", 2)
         monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
-        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: {
-            "id": ann["id"], "classified_by": poll.MODEL})
+        monkeypatch.setattr(
+            poll,
+            "process",
+            lambda ann, dry_run=False: {"id": ann["id"], "classified_by": poll.MODEL},
+        )
         poll.main()
         cursor = json.loads(poll.CURSOR_FILE.read_text())["search_after"]
         assert cursor == "2026-09-20T00:01:00+00:00"
@@ -571,8 +609,7 @@ class TestBatchCap:
 class TestDailyCeiling:
     """A dollar ceiling per UTC day, on top of the per-run count cap."""
 
-    ROWS = ["2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00",
-            "2026-09-20T00:02:00+00:00"]
+    ROWS = ["2026-09-20T00:00:00+00:00", "2026-09-20T00:01:00+00:00", "2026-09-20T00:02:00+00:00"]
 
     def _run(self, monkeypatch, stamps, ceiling, price=0.10):
         rows = _rows(*stamps)
@@ -584,6 +621,7 @@ class TestDailyCeiling:
         def priced(ann, dry_run=False):
             calls.append(ann["id"])
             return {"id": ann["id"], "classified_by": poll.MODEL, "cost_usd": price}
+
         monkeypatch.setattr(poll, "process", priced)
         poll.main()
         return calls, json.loads(poll.HEALTH_FILE.read_text())
@@ -595,8 +633,9 @@ class TestDailyCeiling:
         assert poll.spent_today() == 0.15
 
     def test_an_earlier_day_does_not_count(self):
-        poll.HEALTH_FILE.write_text(json.dumps(
-            {"cost_day": "2000-01-01", "cost_usd_today": 9.0, "cost_usd_total": 9.0}))
+        poll.HEALTH_FILE.write_text(
+            json.dumps({"cost_day": "2000-01-01", "cost_usd_today": 9.0, "cost_usd_total": 9.0})
+        )
         assert poll.spent_today() == 0.0
         poll.record_health("ok", cost_usd=0.02)
         health = json.loads(poll.HEALTH_FILE.read_text())
@@ -651,26 +690,31 @@ class _FakeSearch:
     def __call__(self, params, **kw):
         self.calls += 1
         key, after = params["sort"], self._ms(params["search_after"])
-        hits = sorted((r for r in self.rows if self._ms(r[key]) > after),
-                      key=lambda r: self._ms(r[key]))
-        return {"rows": hits[:params["limit"]]}
+        hits = sorted(
+            (r for r in self.rows if self._ms(r[key]) > after), key=lambda r: self._ms(r[key])
+        )
+        return {"rows": hits[: params["limit"]]}
 
 
 class TestMillisecondCursor:
     """A cut inside one millisecond must not strand the rest of that millisecond."""
 
-    STAMPS = ["2026-09-20T00:00:00.100000+00:00",
-              "2026-09-20T00:00:01.500100+00:00",  # these two share a millisecond
-              "2026-09-20T00:00:01.500900+00:00",
-              "2026-09-20T00:00:02.000000+00:00"]
+    STAMPS = [
+        "2026-09-20T00:00:00.100000+00:00",
+        "2026-09-20T00:00:01.500100+00:00",  # these two share a millisecond
+        "2026-09-20T00:00:01.500900+00:00",
+        "2026-09-20T00:00:02.000000+00:00",
+    ]
 
     def test_ms_before_steps_back_one_millisecond_from_the_truncated_stamp(self):
-        assert (poll.ms_before("2026-09-20T00:00:01.500900+00:00")
-                == "2026-09-20T00:00:01.499000+00:00")
+        assert (
+            poll.ms_before("2026-09-20T00:00:01.500900+00:00") == "2026-09-20T00:00:01.499000+00:00"
+        )
 
     def test_ms_before_crosses_a_second_boundary(self):
-        assert (poll.ms_before("2026-09-20T00:00:00.000500+00:00")
-                == "2026-09-19T23:59:59.999000+00:00")
+        assert (
+            poll.ms_before("2026-09-20T00:00:00.000500+00:00") == "2026-09-19T23:59:59.999000+00:00"
+        )
 
     def test_ms_before_passes_an_unparseable_cursor_through(self):
         assert poll.ms_before(None) is None
@@ -683,13 +727,19 @@ class TestMillisecondCursor:
 
     def test_a_batch_cut_inside_one_millisecond_is_picked_up_next_run(self, monkeypatch):
         monkeypatch.setattr(poll, "search", _FakeSearch(_rows(*self.STAMPS)))
-        monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG,
-                                             "since": "2026-09-19T00:00:00.000000+00:00"})
+        monkeypatch.setattr(
+            poll, "CONFIG", {**poll.CONFIG, "since": "2026-09-19T00:00:00.000000+00:00"}
+        )
         monkeypatch.setattr(poll, "MAX_PER_RUN", 2)
         monkeypatch.setattr(poll, "MAX_DAILY_USD", 0)
         done = []
-        monkeypatch.setattr(poll, "process", lambda ann, dry_run=False: (
-            done.append(ann["id"]) or {"id": ann["id"], "classified_by": poll.MODEL}))
+        monkeypatch.setattr(
+            poll,
+            "process",
+            lambda ann, dry_run=False: (
+                done.append(ann["id"]) or {"id": ann["id"], "classified_by": poll.MODEL}
+            ),
+        )
         for _ in range(3):
             poll.main()
         assert done == ["a0", "a1", "a2", "a3"]
@@ -708,8 +758,12 @@ class TestMillisecondCursor:
         # the API offers no tiebreaker, so past page_size rows in one
         # millisecond only the strict cursor moves on (a2 is the known cost)
         same = "2026-09-20T00:00:01.500"
-        rows = _rows(same + "100+00:00", same + "200+00:00", same + "300+00:00",
-                     "2026-09-20T00:00:02.000000+00:00")
+        rows = _rows(
+            same + "100+00:00",
+            same + "200+00:00",
+            same + "300+00:00",
+            "2026-09-20T00:00:02.000000+00:00",
+        )
         monkeypatch.setattr(poll, "search", _FakeSearch(rows))
         got = poll.fetch_new("2026-09-19T00:00:00.000000+00:00", page_size=2)
         assert [r["id"] for r in got] == ["a0", "a1", "a3"]
@@ -723,8 +777,7 @@ class TestFirstRunCursor:
     def asked(self, monkeypatch):
         params = []
         monkeypatch.setattr(poll, "search", lambda p, **kw: params.append(p) or {"rows": []})
-        monkeypatch.setattr(poll, "CONFIG", {k: v for k, v in poll.CONFIG.items()
-                                             if k != "since"})
+        monkeypatch.setattr(poll, "CONFIG", {k: v for k, v in poll.CONFIG.items() if k != "since"})
         return params
 
     def test_no_since_watches_from_the_first_run_and_saves_that_moment(self, asked):
@@ -742,8 +795,9 @@ class TestFirstRunCursor:
         assert not poll.CURSOR_FILE.exists()
 
     def test_since_still_wins_when_set(self, asked, monkeypatch):
-        monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG,
-                                             "since": "2026-09-19T00:00:00.000000+00:00"})
+        monkeypatch.setattr(
+            poll, "CONFIG", {**poll.CONFIG, "since": "2026-09-19T00:00:00.000000+00:00"}
+        )
         poll.main()
         assert asked[0]["search_after"] == poll.ms_before("2026-09-19T00:00:00.000000+00:00")
         assert not poll.CURSOR_FILE.exists()  # nothing processed, so nothing to save
@@ -762,8 +816,9 @@ class TestClassifyPrompt:
         return poll.classify_prompt(sample_annotation())
 
     def test_new_node_example_is_drawn_from_the_live_taxonomy(self, monkeypatch, tmp_path):
-        prompt = self._prompt(monkeypatch, tmp_path,
-                              "### garden — plants\n\n- `garden/roses` — roses\n")
+        prompt = self._prompt(
+            monkeypatch, tmp_path, "### garden — plants\n\n- `garden/roses` — roses\n"
+        )
         assert '(e.g. "garden/roses/<child>")' in prompt
         assert "platform-studies" not in prompt
 

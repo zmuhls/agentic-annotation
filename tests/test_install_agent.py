@@ -19,14 +19,12 @@ ROOT = install_agent.ROOT
 
 class TestLaunchd:
     def _plist(self, **kw):
-        args = {"label": "local.test-watcher", "python": "/usr/bin/python3",
-                "interval": 300, **kw}
+        args = {"label": "local.test-watcher", "python": "/usr/bin/python3", "interval": 300, **kw}
         return plistlib.loads(install_agent.launchd_plist(**args).encode())
 
     def test_paths_come_from_the_checkout_not_a_literal(self):
         plist = self._plist()
-        assert plist["ProgramArguments"] == [
-            "/usr/bin/python3", str(ROOT / "scripts" / "poll.py")]
+        assert plist["ProgramArguments"] == ["/usr/bin/python3", str(ROOT / "scripts" / "poll.py")]
         assert plist["WorkingDirectory"] == str(ROOT)
         assert plist["StandardOutPath"] == str(ROOT / "logs" / "launchd.log")
 
@@ -50,8 +48,9 @@ class TestSystemd:
     def test_emits_a_service_and_a_timer_bound_to_it(self):
         units = install_agent.systemd_units("watcher", "/usr/bin/python3", 300)
         assert set(units) == {"watcher.service", "watcher.timer"}
-        assert f"ExecStart=/usr/bin/python3 {ROOT / 'scripts' / 'poll.py'}" \
-            in units["watcher.service"]
+        assert (
+            f"ExecStart=/usr/bin/python3 {ROOT / 'scripts' / 'poll.py'}" in units["watcher.service"]
+        )
         assert "Unit=watcher.service" in units["watcher.timer"]
         assert "OnUnitActiveSec=300s" in units["watcher.timer"]
 
@@ -62,8 +61,9 @@ class TestCron:
         assert install_agent.cron_line("/usr/bin/python3", 600).startswith("*/10 * * * *")
 
     def test_runs_from_the_checkout(self):
-        assert f"cd {ROOT} && /usr/bin/python3 scripts/poll.py" \
-            in install_agent.cron_line("/usr/bin/python3", 300)
+        assert f"cd {ROOT} && /usr/bin/python3 scripts/poll.py" in install_agent.cron_line(
+            "/usr/bin/python3", 300
+        )
 
 
 class TestWrite:
@@ -79,8 +79,9 @@ class TestWrite:
 
 class TestCli:
     def test_dry_run_prints_and_installs_nothing(self, capsys, monkeypatch):
-        monkeypatch.setattr(install_agent, "write_file",
-                            lambda *a, **k: pytest.fail("must not write"))
+        monkeypatch.setattr(
+            install_agent, "write_file", lambda *a, **k: pytest.fail("must not write")
+        )
         assert install_agent.main(["--target", "launchd"]) == 0
         assert "<key>Label</key>" in capsys.readouterr().out
 
@@ -94,24 +95,36 @@ class TestInterpreterPreflight:
     """
 
     def test_write_refuses_a_missing_interpreter(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(install_agent, "write_file",
-                            lambda *a, **k: pytest.fail("must not write"))
+        monkeypatch.setattr(
+            install_agent, "write_file", lambda *a, **k: pytest.fail("must not write")
+        )
         with pytest.raises(SystemExit, match="/opt/gone/bin/python3"):
-            install_agent.main(["--target", "launchd", "--write",
-                                "--python", "/opt/gone/bin/python3"])
+            install_agent.main(
+                ["--target", "launchd", "--write", "--python", "/opt/gone/bin/python3"]
+            )
 
-    def test_the_override_is_for_generating_units_for_another_machine(self, tmp_path,
-                                                                     monkeypatch):
+    def test_the_override_is_for_generating_units_for_another_machine(self, tmp_path, monkeypatch):
         written = {}
-        monkeypatch.setattr(install_agent, "write_file",
-                            lambda path, text, force: written.setdefault(path, text))
-        assert install_agent.main(["--target", "systemd", "--write", "--allow-missing-python",
-                                   "--python", "/opt/gone/bin/python3"]) == 0
+        monkeypatch.setattr(
+            install_agent, "write_file", lambda path, text, force: written.setdefault(path, text)
+        )
+        assert (
+            install_agent.main(
+                [
+                    "--target",
+                    "systemd",
+                    "--write",
+                    "--allow-missing-python",
+                    "--python",
+                    "/opt/gone/bin/python3",
+                ]
+            )
+            == 0
+        )
         assert written
 
     def test_printing_a_unit_only_warns(self, capsys):
-        assert install_agent.main(["--target", "launchd",
-                                   "--python", "/opt/gone/bin/python3"]) == 0
+        assert install_agent.main(["--target", "launchd", "--python", "/opt/gone/bin/python3"]) == 0
         captured = capsys.readouterr()
         assert "<key>Label</key>" in captured.out
         assert "does not exist" in captured.err

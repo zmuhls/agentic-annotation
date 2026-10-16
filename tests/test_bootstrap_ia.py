@@ -52,13 +52,16 @@ ANNOTATIONS = [
 
 
 class TestSlugify:
-    @pytest.mark.parametrize("raw, expected", [
-        ("ENG 2100 / Fall", "eng-2100-fall"),
-        ("  Diss Reading  ", "diss-reading"),
-        ("forum.example", "forum-example"),
-        ("", "group"),
-        ("!!!", "group"),
-    ])
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("ENG 2100 / Fall", "eng-2100-fall"),
+            ("  Diss Reading  ", "diss-reading"),
+            ("forum.example", "forum-example"),
+            ("", "group"),
+            ("!!!", "group"),
+        ],
+    )
     def test_slugs(self, raw, expected):
         assert bootstrap_ia.slugify(raw) == expected
 
@@ -80,8 +83,7 @@ class TestDomainCounts:
 class TestNodesSection:
     @pytest.fixture
     def section(self):
-        return bootstrap_ia.nodes_section(
-            GROUPS, bootstrap_ia.domains_by_group(ANNOTATIONS))
+        return bootstrap_ia.nodes_section(GROUPS, bootstrap_ia.domains_by_group(ANNOTATIONS))
 
     def test_one_top_level_node_per_group_except_public(self, section):
         assert "### diss-reading — Diss Reading" in section
@@ -105,7 +107,8 @@ class TestNodesSection:
 
     def test_colliding_group_names_get_distinct_slugs(self):
         section = bootstrap_ia.nodes_section(
-            [{"id": "A", "name": "Reading"}, {"id": "B", "name": "reading!"}], {})
+            [{"id": "A", "name": "Reading"}, {"id": "B", "name": "reading!"}], {}
+        )
         assert "### reading-2 —" in section
         assert "### reading-3 —" in section  # `reading` itself is reserved
 
@@ -113,8 +116,9 @@ class TestNodesSection:
 class TestDraft:
     @pytest.fixture
     def text(self):
-        return bootstrap_ia.draft(TEMPLATE, "acct:new@hypothes.is", GROUPS,
-                                  bootstrap_ia.domains_by_group(ANNOTATIONS))
+        return bootstrap_ia.draft(
+            TEMPLATE, "acct:new@hypothes.is", GROUPS, bootstrap_ia.domains_by_group(ANNOTATIONS)
+        )
 
     def test_carries_the_shared_vocabulary_through_verbatim(self, text):
         assert "| `revision` | Rework the anchored prose |" in text
@@ -128,10 +132,13 @@ class TestDraft:
     def test_keeps_the_section_order(self, text):
         assert text.index("## Nodes") < text.index("## Action vocabulary")
 
-    @pytest.mark.parametrize("broken", [
-        "# no nodes heading\n\n## Action vocabulary\n",
-        "# no vocabulary\n\n## Nodes\n\n### a — b\n",
-    ])
+    @pytest.mark.parametrize(
+        "broken",
+        [
+            "# no nodes heading\n\n## Action vocabulary\n",
+            "# no vocabulary\n\n## Nodes\n\n### a — b\n",
+        ],
+    )
     def test_refuses_a_template_missing_either_marker(self, broken):
         with pytest.raises(ValueError):
             bootstrap_ia.draft(broken, "acct:new@hypothes.is", GROUPS, {})
@@ -147,9 +154,11 @@ class TestExampleNode:
     def test_the_example_is_rewritten_to_a_generated_node(self):
         template = TEMPLATE.replace(
             "is assigned one **node**.",
-            "is assigned one **node** (e.g. `dissertation/corpus/transfer`).")
-        text = bootstrap_ia.draft(template, "acct:new@hypothes.is", GROUPS,
-                                  bootstrap_ia.domains_by_group(ANNOTATIONS))
+            "is assigned one **node** (e.g. `dissertation/corpus/transfer`).",
+        )
+        text = bootstrap_ia.draft(
+            template, "acct:new@hypothes.is", GROUPS, bootstrap_ia.domains_by_group(ANNOTATIONS)
+        )
         assert "dissertation/corpus" not in text
         assert "(e.g. `diss-reading/forum-example/<child>`)" in text
 

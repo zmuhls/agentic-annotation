@@ -47,8 +47,7 @@ Check = namedtuple("Check", "level name detail")  # level: ok | warn | fail
 MARKS = {"ok": "ok  ", "warn": "warn", "fail": "FAIL"}
 
 
-def find_units(launch_agents=LAUNCH_AGENTS, systemd_dir=SYSTEMD_DIR,
-               poll_script=POLL_SCRIPT):
+def find_units(launch_agents=LAUNCH_AGENTS, systemd_dir=SYSTEMD_DIR, poll_script=POLL_SCRIPT):
     """Scheduler units that run *this* checkout's poll.py.
 
     A cron install cannot be found this way; that is what the "no unit" warning
@@ -72,19 +71,28 @@ def find_units(launch_agents=LAUNCH_AGENTS, systemd_dir=SYSTEMD_DIR,
 
 def check_units(units):
     if not units:
-        return [Check("warn", "scheduler", "no launchd/systemd unit found for this "
-                      "checkout — see INSTALL.md (a crontab install is not detectable)")]
+        return [
+            Check(
+                "warn",
+                "scheduler",
+                "no launchd/systemd unit found for this "
+                "checkout — see INSTALL.md (a crontab install is not detectable)",
+            )
+        ]
     checks = []
     for unit in units:
         if Path(unit.interpreter).exists():
-            checks.append(Check("ok", "scheduler",
-                                f"{unit.path.name} runs {unit.interpreter}"))
+            checks.append(Check("ok", "scheduler", f"{unit.path.name} runs {unit.interpreter}"))
         else:
-            checks.append(Check(
-                "fail", "scheduler",
-                f"{unit.path.name} names {unit.interpreter}, which no longer exists — "
-                "the job cannot start; re-run scripts/install_agent.py --write --force "
-                "with a present interpreter, then reload the unit"))
+            checks.append(
+                Check(
+                    "fail",
+                    "scheduler",
+                    f"{unit.path.name} names {unit.interpreter}, which no longer exists — "
+                    "the job cannot start; re-run scripts/install_agent.py --write --force "
+                    "with a present interpreter, then reload the unit",
+                )
+            )
     return checks
 
 
@@ -118,8 +126,11 @@ def _spend_note(health, now, max_daily_usd):
     if total:
         parts.append(f"${total:.2f} spent on classification to date")
     # cost_usd_today belongs to cost_day; a stale day means nothing spent today
-    today = (health.get("cost_usd_today") or 0) \
-        if health.get("cost_day") == now.date().isoformat() else 0
+    today = (
+        (health.get("cost_usd_today") or 0)
+        if health.get("cost_day") == now.date().isoformat()
+        else 0
+    )
     if max_daily_usd:
         parts.append(f"${today:.2f} of ${max_daily_usd:.2f} daily ceiling used today")
     elif today:
@@ -130,40 +141,47 @@ def _spend_note(health, now, max_daily_usd):
 def check_heartbeat(health, now, max_age_seconds, max_daily_usd=0):
     """poll.py stamps data/health.json on every completed run."""
     if health is None:
-        return Check("warn", "heartbeat",
-                     "no data/health.json yet — has poll.py ever run here?")
+        return Check("warn", "heartbeat", "no data/health.json yet — has poll.py ever run here?")
     try:
         last = datetime.fromisoformat(health.get("last_run", ""))
     except (TypeError, ValueError):
-        return Check("fail", "heartbeat",
-                     f"unreadable last_run: {health.get('last_run')!r}")
+        return Check("fail", "heartbeat", f"unreadable last_run: {health.get('last_run')!r}")
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
     age = now - last
     when = _age_phrase(age)
     if age.total_seconds() > max_age_seconds:
-        return Check("fail", "heartbeat",
-                     f"last poll {when} — the watcher is not running")
+        return Check("fail", "heartbeat", f"last poll {when} — the watcher is not running")
     status = health.get("status", "ok")
     fallbacks = health.get("fallbacks") or 0
     if status != "ok":
-        return Check("warn", "heartbeat",
-                     f"last poll {when} ended {status}: {health.get('detail', '')}"[:160])
+        return Check(
+            "warn",
+            "heartbeat",
+            f"last poll {when} ended {status}: {health.get('detail', '')}"[:160],
+        )
     if fallbacks:
-        return Check("warn", "heartbeat",
-                     f"last poll {when}, but {fallbacks} annotation(s) took the "
-                     "rules fallback — check the classifier (run `claude` and sign in)")
+        return Check(
+            "warn",
+            "heartbeat",
+            f"last poll {when}, but {fallbacks} annotation(s) took the "
+            "rules fallback — check the classifier (run `claude` and sign in)",
+        )
     spend_note = _spend_note(health, now, max_daily_usd)
-    return Check("ok", "heartbeat",
-                 f"last poll {when}, {health.get('processed', 0)} processed{spend_note}")
+    return Check(
+        "ok", "heartbeat", f"last poll {when}, {health.get('processed', 0)} processed{spend_note}"
+    )
 
 
 def check_config(config):
     missing = [key for key in ("api_token", "user") if not config.get(key)]
     if missing:
-        return Check("fail", "config",
-                     f"config.json is missing {', '.join(missing)} — copy "
-                     "config.example.json and fill it in")
+        return Check(
+            "fail",
+            "config",
+            f"config.json is missing {', '.join(missing)} — copy "
+            "config.example.json and fill it in",
+        )
     return Check("ok", "config", f"watching {config['user']}")  # never print the token
 
 
@@ -188,10 +206,15 @@ def check_since(config):
         datetime.fromisoformat(text[:-1] + "+00:00" if text[-1:] in "Zz" else text)
         return []
     except ValueError:
-        return [Check("warn", "since",
-                      f"config.json `since` is {since!r}, not an ISO 8601 date — the "
-                      "api may answer 400 to every poll until a cursor exists; use "
-                      "e.g. 2024-07-15T00:00:00+00:00")]
+        return [
+            Check(
+                "warn",
+                "since",
+                f"config.json `since` is {since!r}, not an ISO 8601 date — the "
+                "api may answer 400 to every poll until a cursor exists; use "
+                "e.g. 2024-07-15T00:00:00+00:00",
+            )
+        ]
 
 
 def fetch_profile(token):
@@ -211,20 +234,36 @@ def check_token(config, fetch=fetch_profile):
     token = config.get("api_token") or ""
     user = config.get("user") or ""
     if not token or token.startswith("YOUR-"):
-        return Check("fail", "token", "config.json still holds the placeholder token — "
-                     "make one at hypothes.is/account/developer")
+        return Check(
+            "fail",
+            "token",
+            "config.json still holds the placeholder token — "
+            "make one at hypothes.is/account/developer",
+        )
     try:
         userid = fetch(token).get("userid")
     except Exception as e:  # URLError, HTTPError, timeout, bad JSON: all "could not ask"
-        return Check("warn", "token", f"could not reach the api to verify the token "
-                     f"({e}); run again when online, or pass --offline")
+        return Check(
+            "warn",
+            "token",
+            f"could not reach the api to verify the token "
+            f"({e}); run again when online, or pass --offline",
+        )
     if not userid:
-        return Check("fail", "token", "the api does not recognize the token — "
-                     "/api/search answers as anonymous, so private-group annotations "
-                     "never arrive; make a new token at hypothes.is/account/developer")
+        return Check(
+            "fail",
+            "token",
+            "the api does not recognize the token — "
+            "/api/search answers as anonymous, so private-group annotations "
+            "never arrive; make a new token at hypothes.is/account/developer",
+        )
     if userid != user:
-        return Check("warn", "token", f"the token belongs to {userid}, but config.json "
-                     f"watches {user} — polls will see {user}'s public annotations only")
+        return Check(
+            "warn",
+            "token",
+            f"the token belongs to {userid}, but config.json "
+            f"watches {user} — polls will see {user}'s public annotations only",
+        )
     return Check("ok", "token", f"recognized by the api as {userid}")
 
 
@@ -232,22 +271,33 @@ def check_claude(config):
     binary = config.get("claude_bin") or shutil.which("claude")
     if binary and Path(binary).exists():
         return Check("ok", "claude cli", str(binary))
-    return Check("fail", "claude cli",
-                 "not on PATH — classification would fall back to rules")
+    return Check("fail", "claude cli", "not on PATH — classification would fall back to rules")
 
 
-def run_checks(now=None, config=None, launch_agents=LAUNCH_AGENTS,
-               systemd_dir=SYSTEMD_DIR, health_file=HEALTH_FILE, offline=False,
-               fetch_profile=fetch_profile):
+def run_checks(
+    now=None,
+    config=None,
+    launch_agents=LAUNCH_AGENTS,
+    systemd_dir=SYSTEMD_DIR,
+    health_file=HEALTH_FILE,
+    offline=False,
+    fetch_profile=fetch_profile,
+):
     now = now or datetime.now(timezone.utc)
     config = load_config() if config is None else config
     units = find_units(launch_agents, systemd_dir)
     max_age = interval_for(units) * MISSED_POLLS_ALLOWED
     token = [] if offline else [check_token(config, fetch_profile)]
-    return [check_config(config), *token, *check_since(config), check_claude(config),
-            *check_units(units),
-            check_heartbeat(load_health(health_file), now, max_age,
-                            float(config.get("max_daily_usd", 0) or 0))]
+    return [
+        check_config(config),
+        *token,
+        *check_since(config),
+        check_claude(config),
+        *check_units(units),
+        check_heartbeat(
+            load_health(health_file), now, max_age, float(config.get("max_daily_usd", 0) or 0)
+        ),
+    ]
 
 
 def exit_code(checks):
@@ -255,11 +305,15 @@ def exit_code(checks):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--json", action="store_true", help="machine-readable output")
-    ap.add_argument("--offline", action="store_true",
-                    help="skip the token check, the one check that needs the network")
+    ap.add_argument(
+        "--offline",
+        action="store_true",
+        help="skip the token check, the one check that needs the network",
+    )
     args = ap.parse_args(argv)
     checks = run_checks(offline=args.offline)
     if args.json:
