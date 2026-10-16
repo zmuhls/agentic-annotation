@@ -193,6 +193,63 @@ class TestCheckSince:
         assert repr(since) in check.detail
 
 
+class TestCheckToken:
+    """/api/profile is the only endpoint that reports a bad token: /api/search
+    answers 200 as an anonymous user instead (probed live), so a wrong or revoked
+    token drops private-group annotations with no error anywhere."""
+
+    CONFIG = {"api_token": "6879-secret-token-value", "user": "acct:me@hypothes.is"}
+
+    def test_a_token_the_api_knows_passes(self):
+        check = doctor.check_token(
+            self.CONFIG, fetch=lambda token: {"userid": "acct:me@hypothes.is"})
+        assert check.level == "ok"
+        assert "acct:me@hypothes.is" in check.detail
+
+    def test_a_token_the_api_does_not_know_fails(self):
+        # the api's reply to a bad token: a 200 with no user on it
+        check = doctor.check_token(self.CONFIG, fetch=lambda token: {"userid": None})
+        assert check.level == "fail"
+        assert "private" in check.detail
+        assert "6879-secret" not in check.detail  # never print the token
+
+    def test_a_token_for_a_different_account_warns(self):
+        check = doctor.check_token(
+            self.CONFIG, fetch=lambda token: {"userid": "acct:other@hypothes.is"})
+        assert check.level == "warn"
+        assert "acct:other@hypothes.is" in check.detail
+        assert "acct:me@hypothes.is" in check.detail
+
+    def test_a_placeholder_token_is_not_sent_anywhere(self):
+        calls = []
+        config = {"api_token": "YOUR-HYPOTHESIS-DEVELOPER-TOKEN", "user": "acct:me@hypothes.is"}
+        check = doctor.check_token(config, fetch=lambda token: calls.append(token))
+        assert check.level == "fail"
+        assert calls == []
+
+    def test_an_unreachable_api_warns_rather_than_failing(self):
+        def down(token):
+            raise OSError("dns")
+        check = doctor.check_token(self.CONFIG, fetch=down)
+        assert check.level == "warn"
+        assert "dns" in check.detail
+
+    def test_offline_skips_the_network_entirely(self):
+        calls = []
+        checks = doctor.run_checks(
+            config=self.CONFIG, offline=True,
+            fetch_profile=lambda token: calls.append(token))
+        assert calls == []
+        assert "token" not in [c.name for c in checks]
+
+    def test_run_checks_includes_the_token_check_by_default(self, tmp_path):
+        checks = doctor.run_checks(
+            config=self.CONFIG, launch_agents=tmp_path, systemd_dir=tmp_path,
+            health_file=tmp_path / "health.json",
+            fetch_profile=lambda token: {"userid": "acct:me@hypothes.is"})
+        assert [c.level for c in checks if c.name == "token"] == ["ok"]
+
+
 class TestExitCode:
     def test_nonzero_when_any_check_fails(self):
         checks = [doctor.Check("ok", "a", ""), doctor.Check("fail", "b", "")]

@@ -9,6 +9,15 @@ on `main`.
 
 ### Added
 
+- `doctor.py` checks the token against `/api/profile` and fails when the API
+  does not recognize it, warns when it belongs to an account other than the
+  one `config.json` watches, and warns (not fails) when the API is unreachable.
+  `/api/search` answers a bad token with public rows and no error, so this was
+  the one silent failure the heartbeat could not see. `--offline` skips it.
+
+- CI runs `actions/checkout@v5` and `actions/setup-python@v6`, the Node 24
+  majors, after GitHub deprecated Node 20 actions.
+
 - `doctor.py` warns when `since` in `config.json` is not ISO 8601 or epoch
   milliseconds. The API answers 400 to a date it cannot read, so a bad `since`
   failed the watcher's first poll and every one after it until a cursor

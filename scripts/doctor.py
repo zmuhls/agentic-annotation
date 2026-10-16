@@ -9,9 +9,12 @@ had nothing to catch it with.
 
 So check the things whose absence is otherwise invisible: a scheduler unit for
 *this* checkout whose interpreter still exists, a heartbeat young enough that a
-poll must have happened, the `claude` binary, and the config keys poll.py needs.
+poll must have happened, the `claude` binary, the config keys poll.py needs, and
+whether the API still recognizes the token (one GET to /api/profile; skip it
+with --offline).
 
     python3 scripts/doctor.py
+    python3 scripts/doctor.py --offline   # no network: skip the token check
 
 Exits non-zero if anything is broken, so it can run from a cron/CI check.
 """
@@ -28,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from appconfig import load_config  # noqa: E402
+from bootstrap_ia import get as api_get  # noqa: E402
 
 POLL_SCRIPT = ROOT / "scripts" / "poll.py"
 HEALTH_FILE = ROOT / "data" / "health.json"
@@ -190,6 +194,40 @@ def check_since(config):
                       "e.g. 2024-07-15T00:00:00+00:00")]
 
 
+def fetch_profile(token):
+    """GET /api/profile as the token's owner."""
+    return api_get("profile", token)
+
+
+def check_token(config, fetch=fetch_profile):
+    """Ask the API whose token this is.
+
+    /api/search never rejects a token it does not recognize: it answers 200 as
+    an anonymous user and returns public rows only (probed live), so a wrong or
+    revoked token drops every private-group annotation with no error in any
+    log. /api/profile is the one endpoint that tells: `userid` is null for a
+    token the API does not know, and the account for one it does.
+    """
+    token = config.get("api_token") or ""
+    user = config.get("user") or ""
+    if not token or token.startswith("YOUR-"):
+        return Check("fail", "token", "config.json still holds the placeholder token — "
+                     "make one at hypothes.is/account/developer")
+    try:
+        userid = fetch(token).get("userid")
+    except Exception as e:  # URLError, HTTPError, timeout, bad JSON: all "could not ask"
+        return Check("warn", "token", f"could not reach the api to verify the token "
+                     f"({e}); run again when online, or pass --offline")
+    if not userid:
+        return Check("fail", "token", "the api does not recognize the token — "
+                     "/api/search answers as anonymous, so private-group annotations "
+                     "never arrive; make a new token at hypothes.is/account/developer")
+    if userid != user:
+        return Check("warn", "token", f"the token belongs to {userid}, but config.json "
+                     f"watches {user} — polls will see {user}'s public annotations only")
+    return Check("ok", "token", f"recognized by the api as {userid}")
+
+
 def check_claude(config):
     binary = config.get("claude_bin") or shutil.which("claude")
     if binary and Path(binary).exists():
@@ -199,12 +237,14 @@ def check_claude(config):
 
 
 def run_checks(now=None, config=None, launch_agents=LAUNCH_AGENTS,
-               systemd_dir=SYSTEMD_DIR, health_file=HEALTH_FILE):
+               systemd_dir=SYSTEMD_DIR, health_file=HEALTH_FILE, offline=False,
+               fetch_profile=fetch_profile):
     now = now or datetime.now(timezone.utc)
     config = load_config() if config is None else config
     units = find_units(launch_agents, systemd_dir)
     max_age = interval_for(units) * MISSED_POLLS_ALLOWED
-    return [check_config(config), *check_since(config), check_claude(config),
+    token = [] if offline else [check_token(config, fetch_profile)]
+    return [check_config(config), *token, *check_since(config), check_claude(config),
             *check_units(units),
             check_heartbeat(load_health(health_file), now, max_age,
                             float(config.get("max_daily_usd", 0) or 0))]
@@ -218,8 +258,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--offline", action="store_true",
+                    help="skip the token check, the one check that needs the network")
     args = ap.parse_args(argv)
-    checks = run_checks()
+    checks = run_checks(offline=args.offline)
     if args.json:
         print(json.dumps([c._asdict() for c in checks], indent=2))
     else:
