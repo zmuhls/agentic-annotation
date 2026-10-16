@@ -1,23 +1,20 @@
-# Daily maintenance — 2026-10-15
+# Daily maintenance — 2026-10-16
 
-**Health: green.** The watcher is loaded (last exit 0), and `doctor.py` reports all `ok` with a fresh heartbeat. Live `poll.py` and `poll.py --dry-run` both exit 0. The logs since 10-09 hold only DNS/wifi blips, and each recovered on its own. There were no sonnet fallbacks and no tracebacks from the current code. The cursor is holding because no annotations have arrived.
+**Health: green.** The watcher is loaded (last exit 0). `doctor.py` reports all `ok` with a fresh heartbeat, and both `poll.py` and `poll.py --dry-run` exit 0. The logs since 10-15 hold one DNS blip that recovered within 40 minutes. No sonnet fallbacks, no tracebacks, no spend. The cursor is holding because no annotations have arrived since July.
 
-**Push unblocked: all 31 waiting commits are on origin.** The GitHub CLI is now installed at `~/.local/bin/gh` and logged in. The push used a one-off `-c credential.helper=…` override. Global git config is unchanged and still names the missing `/usr/local/bin/gh`, so a plain `git push` still fails. Before pushing, I scanned the unpushed diff for tokens, usernames, and absolute paths and found none. CI's first run since 08-13 is green.
+**Changed: `doctor.py` now verifies the token** (from the agenda). It sends one GET to `/api/profile`, the only endpoint that tells a bad token from a good one: `/api/search` answers an unknown token with public rows and no error. The check fails when `userid` is null, warns when the token belongs to an account other than the one `config.json` watches, and warns (not fails) when the API is unreachable. A placeholder token is never sent. `--offline` skips it, so the checker still works without a network. The call reuses `bootstrap_ia.get` rather than a second HTTP helper. INSTALL.md's troubleshooting row points at it.
 
-**Changed: a rejected request no longer says "retrying next run"** (from the agenda). `search()` never retries a `4xx` other than `429`, and that request fails every poll until `config.json` changes. The log line now says a retry will not fix it and points at `config.json` and `doctor.py`. A `429` or `5xx` that outlasts the retries still says "retrying next run".
+**Changed: CI** runs `actions/checkout@v5` and `actions/setup-python@v6` (the Node 24 majors; GitHub deprecated Node 20) and now runs `ruff format --check`. The 16 unformatted files were formatted in a commit of their own so the diff stays mechanical.
 
-**Found: a bad token is not a 401.** A live probe sent a made-up token, and `/api/search` answered `200` as an anonymous user, with public rows only. A wrong or revoked token therefore drops private-group annotations with no error anywhere. The INSTALL.md troubleshooting row claimed a `401`; it now describes the real symptom.
-
-**Changed: CI** now also runs Python 3.9, the watcher's interpreter, on a pinned `ubuntu-24.04` runner. ubuntu-latest moves to Ubuntu 26 on 10-19, and 3.9 is end-of-life. ruff is pinned to 0.11.2, the version the code is checked with locally. All 3 jobs pass.
-
-**Verify:** 2 new tests; the 401 test failed before the fix. 212 pass locally and in a clean clone with no private config. Ruff is clean and py_compile is ok. A live `400` probe, with every write sent to a scratch directory, printed the new message. Cursor and seen checksums were unchanged. No paid classification ran.
+**Verify:** 7 new tests, all red before the implementation. 219 pass. Ruff check and format are clean, py_compile is ok. Live `doctor.py` with the real token prints `ok token`; a made-up token prints the fail. Cursor and seen were unchanged after the dry run. No paid classification ran.
 
 **Dependencies:** none added; the runtime is still stdlib-only.
 
+**Push:** a plain `git push` still fails because global git config names the missing `/usr/local/bin/gh`. Pushed with a one-off `-c credential.helper` override, as on 10-15.
+
 **Next candidates:**
 - **ACTION (human):** run `~/.local/bin/gh auth setup-git` so a plain `git push` works again.
-- ROBUSTNESS: `doctor.py` should check the token. Probed today: `GET /api/profile` returns `userid: null` for a bad token and the configured user for a good one.
-- MAINTENANCE: bump `actions/checkout` and `actions/setup-python` to their Node 24 majors (CI warns that Node 20 is deprecated).
-- MAINTENANCE: commit `ruff format` on its own (16 files), then add a `ruff format --check` CI step.
 - PRO-GRADE: console entry points. These first need a configurable home directory for `data/` and `config.json`.
 - ADOPTERS: a worked bootstrap-preview example in `docs/examples/` against fictional groups.
+- ROBUSTNESS: have `poll.py` record the token check's result in `health.json` once a day, so a revoked token shows in the heartbeat without running doctor.
+- MAINTENANCE: `install_agent.py` could emit a `doctor.py --offline` cron line for Linux adopters.
