@@ -19,6 +19,26 @@ import doctor  # noqa: E402
 POLL = doctor.POLL_SCRIPT
 
 
+@pytest.fixture(autouse=True)
+def no_real_claude(monkeypatch):
+    """Keep check_claude from shelling out to whatever `claude` this machine has.
+
+    An OSError is what a missing binary raises, so the default answer is
+    "cannot tell"; tests that need a sign-in state stub `subprocess.run` again.
+    """
+
+    def refuse(*a, **k):
+        raise OSError("tests never run the real claude cli")
+
+    monkeypatch.setattr(doctor.subprocess, "run", refuse)
+
+
+class FakeProc:
+    def __init__(self, returncode=0, stdout=""):
+        self.returncode = returncode
+        self.stdout = stdout
+
+
 def _plist(tmp_path, name, interpreter, script=POLL, interval=300):
     path = tmp_path / f"{name}.plist"
     path.write_bytes(
@@ -262,6 +282,62 @@ class TestCheckToken:
             fetch_profile=lambda token: {"userid": "acct:me@hypothes.is"},
         )
         assert [c.level for c in checks if c.name == "token"] == ["ok"]
+
+
+class TestCheckClaude:
+    """`claude auth status` reads the local login: no model call, no spend.
+
+    The binary being on PATH said nothing about whether it could classify: on
+    2026-10-16 the watcher's calls found no login, and a binary on PATH was all
+    doctor looked for.
+    """
+
+    def _cli(self, tmp_path, monkeypatch, returncode=0, stdout=""):
+        binary = tmp_path / "claude"
+        binary.write_text("")
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            return FakeProc(returncode, stdout)
+
+        monkeypatch.setattr(doctor.subprocess, "run", run)
+        return {"claude_bin": str(binary)}, calls
+
+    def test_a_signed_in_cli_passes(self, tmp_path, monkeypatch):
+        status = json.dumps({"loggedIn": True, "authMethod": "claude.ai", "email": "me@x.example"})
+        config, calls = self._cli(tmp_path, monkeypatch, stdout=status)
+        check = doctor.check_claude(config)
+        assert check.level == "ok"
+        assert "signed in" in check.detail
+        assert "me@x.example" not in check.detail  # the account stays private
+        assert calls == [[config["claude_bin"], "auth", "status", "--json"]]
+
+    def test_a_signed_out_cli_fails(self, tmp_path, monkeypatch):
+        config, _ = self._cli(tmp_path, monkeypatch, 1, json.dumps({"loggedIn": False}))
+        check = doctor.check_claude(config)
+        assert check.level == "fail"
+        assert "sign in" in check.detail
+
+    @pytest.mark.parametrize("stdout", ["", "error: unknown command 'auth'", "[]"])
+    def test_a_cli_that_cannot_say_still_passes_on_the_binary(self, tmp_path, monkeypatch, stdout):
+        # an older CLI without `auth status` must not turn doctor red
+        config, _ = self._cli(tmp_path, monkeypatch, 1, stdout)
+        check = doctor.check_claude(config)
+        assert check.level == "ok"
+        assert "unknown" in check.detail
+
+    def test_a_cli_that_will_not_start_still_passes_on_the_binary(self, tmp_path):
+        binary = tmp_path / "claude"
+        binary.write_text("")
+        check = doctor.check_claude({"claude_bin": str(binary)})  # autouse: OSError
+        assert check.level == "ok"
+        assert "unknown" in check.detail
+
+    def test_a_missing_binary_is_not_asked_anything(self, tmp_path):
+        check = doctor.check_claude({"claude_bin": str(tmp_path / "absent")})
+        assert check.level == "fail"
+        assert "not on PATH" in check.detail
 
 
 class TestExitCode:

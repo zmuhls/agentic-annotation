@@ -29,6 +29,7 @@ _WRITE_PATHS = (
     "EMERGENT_FILE",
     "LOCK_FILE",
     "NETFAIL_FILE",
+    "AUTHFAIL_FILE",
     "HEALTH_FILE",
 )
 

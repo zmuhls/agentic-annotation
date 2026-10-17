@@ -9,7 +9,8 @@ had nothing to catch it with.
 
 So check the things whose absence is otherwise invisible: a scheduler unit for
 *this* checkout whose interpreter still exists, a heartbeat young enough that a
-poll must have happened, the `claude` binary, the config keys poll.py needs, and
+poll must have happened, the `claude` binary and whether it is signed in (`claude
+auth status`, which spends nothing), the config keys poll.py needs, and
 whether the API still recognizes the token (one GET to /api/profile; skip it
 with --offline).
 
@@ -23,6 +24,7 @@ import argparse
 import json
 import plistlib
 import shutil
+import subprocess
 import sys
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -267,11 +269,38 @@ def check_token(config, fetch=fetch_profile):
     return Check("ok", "token", f"recognized by the api as {userid}")
 
 
+def claude_signed_in(binary):
+    """True or False per `claude auth status`, or None when the CLI cannot say.
+
+    The subcommand reads the local login and makes no model call, so asking
+    costs nothing. A CLI too old to have it, or one that will not start, is
+    None rather than a failure: the binary check already passed.
+    """
+    try:
+        proc = subprocess.run(
+            [str(binary), "auth", "status", "--json"], capture_output=True, text=True, timeout=30
+        )
+        status = json.loads(proc.stdout)
+        return bool(status["loggedIn"])
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+
+
 def check_claude(config):
     binary = config.get("claude_bin") or shutil.which("claude")
-    if binary and Path(binary).exists():
-        return Check("ok", "claude cli", str(binary))
-    return Check("fail", "claude cli", "not on PATH — classification would fall back to rules")
+    if not (binary and Path(binary).exists()):
+        return Check("fail", "claude cli", "not on PATH — classification would fall back to rules")
+    signed_in = claude_signed_in(binary)
+    if signed_in is False:
+        return Check(
+            "fail",
+            "claude cli",
+            f"{binary} is not signed in — run `claude` and sign in; "
+            "the watcher holds new annotations unclassified until then",
+        )
+    if signed_in is None:
+        return Check("ok", "claude cli", f"{binary} (sign-in state unknown)")
+    return Check("ok", "claude cli", f"{binary}, signed in")  # never print the account
 
 
 def run_checks(

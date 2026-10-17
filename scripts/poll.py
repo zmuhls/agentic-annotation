@@ -70,6 +70,7 @@ LOG_FILE = ROOT / "logs" / "watcher.log"
 STDOUT_LOG = ROOT / "logs" / "launchd.log"
 LOCK_FILE = ROOT / "data" / ".poll.lock"
 NETFAIL_FILE = ROOT / "data" / ".netfail"
+AUTHFAIL_FILE = ROOT / "data" / ".authfail"
 HEALTH_FILE = ROOT / "data" / "health.json"
 
 # Nothing ever pruned the logs: 288 runs a day append forever, and one bad week
@@ -311,6 +312,16 @@ def cli_error_text(proc):
 AUTH_MARKERS = ("authenticate", "oauth", "unauthorized", "invalid api key", "please run /login")
 
 
+class ClaudeAuthError(RuntimeError):
+    """The claude CLI has no working login.
+
+    Not a fault of the annotation at hand: every call fails the same way until
+    someone signs in. poll_once holds the queue on it rather than letting
+    process() file each annotation under the rules, which marked them seen, so
+    on 2026-10-16 four annotations lost their model pass for good.
+    """
+
+
 def call_sonnet(prompt, attempts=2, meta=None):
     """Classify one annotation, optionally reporting what the call cost.
 
@@ -332,9 +343,8 @@ def call_sonnet(prompt, attempts=2, meta=None):
             break
         detail = cli_error_text(proc)
         if any(m in detail.lower() for m in AUTH_MARKERS):
-            raise RuntimeError(
-                f"claude cli is not authenticated ({detail}) — run `claude` "
-                "and sign in; classification is falling back to rules until then"
+            raise ClaudeAuthError(
+                f"claude cli is not authenticated ({detail}) — run `claude` and sign in"
             )
         if attempt < attempts - 1:
             time.sleep(30)  # transient API outages are common enough to ride out
@@ -408,16 +418,21 @@ def note_emergent(node, role, ann):
         f.write(f"- `{node}` — {role} (from {ann.get('links', {}).get('incontext', ann['id'])})\n")
 
 
-def note_network_failure(msg):
-    """Log an outage once, not once per five-minute poll.
+def note_once(marker, msg):
+    """Log a standing fault once, not once per five-minute poll.
 
     A wifi drop otherwise writes the same line 288 times a day into the log the
-    health review reads. Remember the last message; only log when it changes.
+    health review reads. Remember the last message in `marker`; only log when it
+    changes.
     """
-    if not NETFAIL_FILE.exists() or NETFAIL_FILE.read_text() != msg:
+    if not marker.exists() or marker.read_text() != msg:
         log(msg)
-        NETFAIL_FILE.parent.mkdir(parents=True, exist_ok=True)
-        NETFAIL_FILE.write_text(msg)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(msg)
+
+
+def note_network_failure(msg):
+    note_once(NETFAIL_FILE, msg)
 
 
 def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0):
@@ -512,6 +527,12 @@ def clear_network_failure():
         log("hypothesis api reachable again")
 
 
+def clear_auth_failure():
+    if AUTHFAIL_FILE.exists():
+        AUTHFAIL_FILE.unlink()
+        log("claude cli signed in again; classifying the annotations held for it")
+
+
 def process(ann, dry_run=False):
     wanted = actions_for(ann.get("tags", []))
     record = record_for(ann)  # rules-based baseline record
@@ -532,6 +553,8 @@ def process(ann, dry_run=False):
             actions = [legacy]
         if result.get("new_node") and not dry_run:
             note_emergent(record["node"], record.get("role", ""), ann)
+    except ClaudeAuthError:
+        raise  # the same for every annotation: poll_once holds the queue
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
         where = f" at {tb[-1].filename.split('/')[-1]}:{tb[-1].lineno}" if tb else ""
@@ -540,6 +563,9 @@ def process(ann, dry_run=False):
             "; falling back to rules"
         )
         record["classified_by"] = "rules-fallback"
+    else:
+        if not dry_run:
+            clear_auth_failure()
     # every tagged action produces a file: stub any the model missed
     produced = {a.get("type") for a in actions}
     for tag in wanted:
@@ -660,16 +686,34 @@ def poll_once(dry_run):
             )
         return
     fresh, deferred = cap_batch(fresh, MAX_PER_RUN)
-    log(
-        f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
-        + (f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})" if deferred else "")
-    )
-    fallbacks, spend, done = 0, 0.0, 0
+    # While a login lapse stands, each poll retries the first held annotation;
+    # announcing that every five minutes is the noise note_once exists to stop.
+    # The run that signs back in says so from process().
+    if dry_run or not AUTHFAIL_FILE.exists():
+        log(
+            f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
+            + (" (dry run)" if dry_run else "")
+            + (
+                f"; {deferred} deferred to the next run (max_per_run={MAX_PER_RUN})"
+                if deferred
+                else ""
+            )
+        )
+    fallbacks, spend, done, signed_out = 0, 0.0, 0, False
     for ann in fresh:
         # Checked before each call, since a call's price is known only after it.
         if budget_left is not None and spend >= budget_left:
             break
-        record = process(ann, dry_run=dry_run)
+        try:
+            record = process(ann, dry_run=dry_run)
+        except ClaudeAuthError as e:
+            msg = f"{e}; new annotations wait in the queue until then"
+            if dry_run:
+                log(msg)  # a dry run marks nothing, so the real watcher still logs it
+            else:
+                note_once(AUTHFAIL_FILE, msg)
+            signed_out = True
+            break
         done += 1
         fallbacks += record.get("classified_by") == "rules-fallback"
         spend += record.get("cost_usd") or 0.0
@@ -678,7 +722,7 @@ def poll_once(dry_run):
             SEEN_FILE.write_text(json.dumps(seen))
             CURSOR_FILE.write_text(json.dumps({"search_after": ann["updated"]}))
     held = len(fresh) - done
-    if held:
+    if held and not signed_out:
         log(
             f"daily spend ceiling reached (${MAX_DAILY_USD:.2f}); "
             f"{held} annotation(s) wait for tomorrow (UTC)"
@@ -687,7 +731,15 @@ def poll_once(dry_run):
         if MAP_FILE.exists():
             write_overview([json.loads(line) for line in MAP_FILE.open()])
         waiting = deferred + held
-        if held:
+        if signed_out:
+            record_health(
+                "auth",
+                processed=done,
+                fallbacks=fallbacks,
+                cost_usd=spend,
+                detail=f"claude cli not signed in; {waiting} waiting — run `claude` and sign in",
+            )
+        elif held:
             record_health(
                 "budget",
                 processed=done,

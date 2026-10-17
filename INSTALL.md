@@ -10,7 +10,8 @@ checkout you run the commands in.
 - **The `claude` CLI**, signed in — the classifier shells out to
   `claude -p --model claude-sonnet-5`. Install it, run `claude` once, and sign
   in. Without it the watcher still works, but every annotation is placed by the
-  rules and recorded as `rules-fallback`.
+  rules and recorded as `rules-fallback`. Installed but signed out, it holds
+  new annotations in the queue until you sign in.
 - **A Hypothesis developer token** — <https://hypothes.is/account/developer>.
 
 Each classification costs roughly $0.10 of API usage, and the watcher only calls
@@ -164,7 +165,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 
 | Symptom | Cause and fix |
 |---|---|
-| `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in. Placement falls back to the rules until you do. |
+| `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in. Until you do, new annotations wait in the queue (heartbeat `status: auth`, `doctor.py` fails the `claude cli` check), and the first poll after you sign in classifies them. The line is logged once per lapse. |
 | Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`, or `bootstrap.py --write --force` to redraft both. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
 | `hypothesis api rejected the request (…)` | A `4xx` from the API: the request will fail the same way on every poll until `config.json` changes. Not retried, by design. The text in parentheses is the API's own reason. |

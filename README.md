@@ -158,7 +158,8 @@ starts look identical, because a job the scheduler cannot spawn writes nothing
 at all. `scripts/doctor.py` checks the things whose absence is otherwise
 invisible and exits non-zero if any of them is broken:
 
-- the config keys `poll.py` needs (the token is never printed) and the `claude` binary
+- the config keys `poll.py` needs (the token is never printed), the `claude`
+  binary, and whether it is signed in
 - a launchd/systemd unit for *this* checkout whose interpreter still exists —
   the one failure that kills the watcher silently, since launchd answers
   `last exit code = 78: EX_CONFIG`, runs nothing, and logs nothing
@@ -198,7 +199,7 @@ runs before each call, so a day can overshoot by at most one classification.
 ```sh
 python3 scripts/doctor.py
 ok   config: watching acct:you@hypothes.is
-ok   claude cli: /usr/local/bin/claude
+ok   claude cli: /usr/local/bin/claude, signed in
 ok   scheduler: local.hypothesis-watcher.plist runs /usr/bin/python3
 ok   heartbeat: last poll 3 min ago, 0 processed, $4.31 spent on classification to date
 ```
@@ -206,11 +207,17 @@ ok   heartbeat: last poll 3 min ago, 0 processed, $4.31 spent on classification 
 ## When classification stops working
 
 Sonnet failures are non-fatal — the annotation still gets placed by the rules
-and the record is marked `rules-fallback`. The watcher log names the cause. The
-most common one is an expired login on the `claude` CLI, reported as
-`claude cli is not authenticated (…)`; fix it by running `claude` and signing in
-again. Auth failures are not retried, since a dead login will not heal between
-attempts.
+and the record is marked `rules-fallback`. The watcher log names the cause.
+
+An expired login on the `claude` CLI is the exception, and the most common
+cause. It is reported once as `claude cli is not authenticated (…)`. A dead
+login fails every annotation the same way, so the watcher does not file them
+under the rules. It holds the queue, as the daily ceiling does: the cursor
+stays put, the heartbeat reads `status: auth` with a count of what is waiting,
+and `doctor.py` fails its `claude cli` check (it asks `claude auth status`, which
+makes no model call). Run `claude` and sign in again; the next poll logs
+`claude cli signed in again` and classifies the held annotations. Each poll
+during the lapse retries one call, which fails fast and costs nothing.
 
 ## Network faults
 

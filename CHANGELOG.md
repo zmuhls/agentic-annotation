@@ -105,6 +105,16 @@ on `main`.
 
 ### Fixed
 
+- A signed-out `claude` CLI no longer files annotations under the rules for
+  good. Each one was placed by the rules, marked seen, and passed by the
+  cursor, so signing in again never gave it a model pass. A dead login now
+  holds the queue, as the daily ceiling does (`poll.ClaudeAuthError`): the
+  cursor stays put, the heartbeat reads `status: auth` with a count of what is
+  waiting, the lapse is logged once rather than every poll, and the first poll
+  after signing in logs `claude cli signed in again` and classifies the queue.
+  `doctor.py` now asks `claude auth status` (no model call) and fails when the
+  CLI is signed out. A dry run's `processing` log line says `(dry run)`.
+
 - Annotations stamped in the same millisecond as the cursor are no longer
   skipped. `/api/search` truncates `search_after` to milliseconds and returns
   rows strictly after it, while `updated` carries microseconds, so a batch cap,

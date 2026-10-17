@@ -88,9 +88,20 @@ class TestCallSonnet:
         monkeypatch.setattr(
             poll.time, "sleep", lambda *a: pytest.fail("must not sleep on an auth failure")
         )
-        with pytest.raises(RuntimeError, match="not authenticated"):
+        with pytest.raises(poll.ClaudeAuthError, match="not authenticated"):
             poll.call_sonnet("prompt", attempts=3)
         assert len(calls) == 1
+
+    def test_a_cli_with_no_login_at_all_is_an_auth_failure(self, monkeypatch):
+        # the shape a launchd run logged on 2026-10-16
+        envelope = json.dumps(
+            {"type": "result", "is_error": True, "result": "Not logged in · Please run /login"}
+        )
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1, stdout=envelope)
+        )
+        with pytest.raises(poll.ClaudeAuthError, match="Not logged in"):
+            poll.call_sonnet("prompt")
 
     def test_error_text_without_any_output(self, monkeypatch):
         monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1))
@@ -160,6 +171,31 @@ class TestProcess:
         rec = poll.process(self._ann(document=[], target=[], tags=[]), dry_run=True)
         assert rec["classified_by"] == "rules-fallback"
         assert rec["title"] == ""
+
+    def test_a_dead_login_is_not_filed_as_a_rules_fallback(self, monkeypatch):
+        # Every annotation fails the same way until someone signs in. Filing them
+        # under the rules marked them seen, so they never got a model pass.
+        def signed_out(_, **kw):
+            raise poll.ClaudeAuthError("claude cli is not authenticated (Not logged in)")
+
+        monkeypatch.setattr(poll, "call_sonnet", signed_out)
+        with pytest.raises(poll.ClaudeAuthError):
+            poll.process(self._ann())
+        assert not poll.MAP_FILE.exists()
+        assert not poll.ACTIONS_DIR.exists()
+
+    def test_the_first_classification_after_a_lapse_says_so(self, monkeypatch):
+        poll.AUTHFAIL_FILE.write_text("claude cli is not authenticated (Not logged in)")
+        monkeypatch.setattr(poll, "call_sonnet", lambda p, **kw: {"node": "inbox", "actions": []})
+        poll.process(self._ann(tags=[]))
+        assert not poll.AUTHFAIL_FILE.exists()
+        assert "signed in again" in poll.LOG_FILE.read_text()
+
+    def test_a_dry_run_leaves_the_lapse_marker_alone(self, monkeypatch):
+        poll.AUTHFAIL_FILE.write_text("claude cli is not authenticated (Not logged in)")
+        monkeypatch.setattr(poll, "call_sonnet", lambda p, **kw: {"node": "inbox", "actions": []})
+        poll.process(self._ann(tags=[]), dry_run=True)
+        assert poll.AUTHFAIL_FILE.exists()
 
 
 class TestSearchRetries:
@@ -671,6 +707,79 @@ class TestDailyCeiling:
         assert "3 waiting" in health["detail"]
         assert not poll.CURSOR_FILE.exists()
         assert not poll.LOG_FILE.exists() or "processing" not in poll.LOG_FILE.read_text()
+
+
+class TestLoginLapse:
+    """A dead claude login holds the queue, like the daily ceiling, instead of
+    filing every waiting annotation under the rules for good."""
+
+    ROWS = ["2026-10-16T23:57:28+00:00", "2026-10-16T23:58:07+00:00", "2026-10-16T23:58:25+00:00"]
+
+    def _run(self, monkeypatch, signed_out_from):
+        """One poll in which every call from row `signed_out_from` on finds no login."""
+        rows = _rows(*self.ROWS)
+        monkeypatch.setattr(poll, "MAX_PER_RUN", 0)
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        calls = []
+
+        def process(ann, dry_run=False):
+            calls.append(ann["id"])
+            if len(calls) > signed_out_from:
+                raise poll.ClaudeAuthError("claude cli is not authenticated (Not logged in)")
+            return {"id": ann["id"], "classified_by": poll.MODEL}
+
+        monkeypatch.setattr(poll, "process", process)
+        poll.main()
+        return calls, json.loads(poll.HEALTH_FILE.read_text())
+
+    def test_holds_the_cursor_at_the_last_classified_row(self, monkeypatch):
+        calls, health = self._run(monkeypatch, signed_out_from=1)
+        assert calls == ["a0", "a1"]  # a2 is not even tried
+        assert json.loads(poll.CURSOR_FILE.read_text())["search_after"] == self.ROWS[0]
+        assert set(json.loads(poll.SEEN_FILE.read_text())) == {"a0"}
+        assert health["status"] == "auth"
+        assert health["processed"] == 1
+        assert "2 waiting" in health["detail"]
+        assert "sign in" in health["detail"]
+        assert "daily spend ceiling" not in poll.LOG_FILE.read_text()
+
+    def test_a_standing_lapse_is_logged_once_not_every_poll(self, monkeypatch):
+        self._run(monkeypatch, signed_out_from=0)
+        _, health = self._run(monkeypatch, signed_out_from=0)
+        text = poll.LOG_FILE.read_text()
+        assert text.count("not authenticated") == 1
+        assert text.count("processing") == 1  # the retrying poll stays quiet
+        assert health["status"] == "auth"
+        assert "3 waiting" in health["detail"]
+        assert not poll.CURSOR_FILE.exists()
+
+    def test_a_dry_run_reports_the_lapse_without_marking_it(self, monkeypatch):
+        rows = _rows(*self.ROWS)
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+
+        def signed_out(ann, dry_run=False):
+            raise poll.ClaudeAuthError("claude cli is not authenticated (Not logged in)")
+
+        monkeypatch.setattr(poll, "process", signed_out)
+        monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
+        poll.main()
+        assert "not authenticated" in poll.LOG_FILE.read_text()
+        assert not poll.AUTHFAIL_FILE.exists()
+        assert not poll.HEALTH_FILE.exists()
+
+
+class TestDryRunLog:
+    def test_a_dry_run_says_so_in_the_watcher_log(self, monkeypatch):
+        # A maintainer's dry run on 2026-10-06 left a bare "processing 1" line
+        # that a later health review read as a real run that never finished.
+        rows = _rows("2026-10-06T12:00:00+00:00")
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        monkeypatch.setattr(
+            poll, "process", lambda ann, dry_run=False: {"id": ann["id"], "classified_by": "x"}
+        )
+        monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
+        poll.main()
+        assert "(dry run)" in poll.LOG_FILE.read_text()
 
 
 class _FakeSearch:
