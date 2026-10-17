@@ -1,20 +1,19 @@
-# Daily maintenance — 2026-10-16
+# Daily maintenance — 2026-10-17
 
-**Health: green.** The watcher is loaded (last exit 0). `doctor.py` reports all `ok` with a fresh heartbeat, and both `poll.py` and `poll.py --dry-run` exit 0. The logs since 10-15 hold one DNS blip that recovered within 40 minutes. No sonnet fallbacks, no tracebacks, no spend. The cursor is holding because no annotations have arrived since July.
+**Health: green now, but degraded overnight.** The watcher is loaded (last exit 0) and a kickstarted launchd run on today's code stamped a fresh heartbeat. `doctor.py` reports all `ok`, and `poll.py` and `poll.py --dry-run` exit 0. Four annotations arrived at 23:57–23:59 UTC on 10-16. All four failed with `claude cli is not authenticated (Not logged in)` and were placed by the rules. The CLI reads as signed in now, both in this shell and in a launchd-like clean env. Why the login lapsed is not known. The cursor advanced normally, and the logs show no other errors apart from routine DNS blips.
 
-**Changed: `doctor.py` now verifies the token** (from the agenda). It sends one GET to `/api/profile`, the only endpoint that tells a bad token from a good one: `/api/search` answers an unknown token with public rows and no error. The check fails when `userid` is null, warns when the token belongs to an account other than the one `config.json` watches, and warns (not fails) when the API is unreachable. A placeholder token is never sent. `--offline` skips it, so the checker still works without a network. The call reuses `bootstrap_ia.get` rather than a second HTTP helper. INSTALL.md's troubleshooting row points at it.
+**Fixed: a dead login no longer files annotations under the rules for good.** Each annotation was marked seen and the cursor moved past it, so signing in again never gave it a model pass. The next idle poll also reset `fallbacks` to 0, so `doctor.py` was back to green within 5 minutes. Now a `ClaudeAuthError` holds the queue the way the daily ceiling does. The cursor stays put, the heartbeat reads `status: auth` with a waiting count, the lapse is logged once rather than every poll, and the first poll after signing in logs `claude cli signed in again` and classifies the queue.
 
-**Changed: CI** runs `actions/checkout@v5` and `actions/setup-python@v6` (the Node 24 majors; GitHub deprecated Node 20) and now runs `ruff format --check`. The 16 unformatted files were formatted in a commit of their own so the diff stays mechanical.
+**Changed: `doctor.py` asks `claude auth status`** (local, no model call, nothing spent). It fails when the CLI is signed out. It still passes on the binary alone when the CLI cannot answer, such as an older version. The account email in that output is never printed. Also, a dry run's `processing` line now says `(dry run)`: a maintainer dry run on 10-06 left a bare line that read like a real run that never finished.
 
-**Verify:** 7 new tests, all red before the implementation. 219 pass. Ruff check and format are clean, py_compile is ok. Live `doctor.py` with the real token prints `ok token`; a made-up token prints the fail. Cursor and seen were unchanged after the dry run. No paid classification ran.
+**Verify:** 15 new tests, all red before the implementation. 234 pass. Ruff check and format are clean, and py_compile is ok. Cursor and seen were unchanged after the dry run. No paid classification ran.
 
 **Dependencies:** none added; the runtime is still stdlib-only.
 
-**Push:** a plain `git push` still fails because global git config names the missing `/usr/local/bin/gh`. Pushed with a one-off `-c credential.helper` override, as on 10-15.
-
 **Next candidates:**
-- **ACTION (human):** run `~/.local/bin/gh auth setup-git` so a plain `git push` works again.
-- PRO-GRADE: console entry points. These first need a configurable home directory for `data/` and `config.json`.
+- **ACTION (human):** run `~/.local/bin/gh auth setup-git`. A plain `git push` still points at the missing `/usr/local/bin/gh`, so today's push again used a one-off `-c credential.helper` override.
+- **OPTIONAL (human):** the four 10-16 annotations keep their rules placement. They carry no action tags, so no action files are affected. To re-run them, drop their ids from `data/seen.json` and set the cursor just before 23:57Z (about 4 calls).
+- DOCS: INSTALL says Python 3.11+ and README says CI runs 3.11/3.12, but the watcher runs on 3.9 and CI tests 3.9. Fix the stated floor and add `requires-python` to pyproject.
+- ROBUSTNESS: a missing `claude` binary still takes the permanent rules fallback. It is the same systemic shape as a dead login and could hold the queue too.
+- PRO-GRADE: console entry points (these first need a configurable home for `data/` and `config.json`).
 - ADOPTERS: a worked bootstrap-preview example in `docs/examples/` against fictional groups.
-- ROBUSTNESS: have `poll.py` record the token check's result in `health.json` once a day, so a revoked token shows in the heartbeat without running doctor.
-- MAINTENANCE: `install_agent.py` could emit a `doctor.py --offline` cron line for Linux adopters.
