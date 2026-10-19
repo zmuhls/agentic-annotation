@@ -103,6 +103,49 @@ class TestCallSonnet:
         with pytest.raises(poll.ClaudeAuthError, match="Not logged in"):
             poll.call_sonnet("prompt")
 
+    def test_the_cli_gets_the_credential_config_json_hands_it(self, monkeypatch):
+        # a scheduler passes no shell environment, so config.json is the only
+        # way a long-lived token reaches the watcher's calls
+        monkeypatch.setitem(poll.CONFIG, "claude_env", {"CLAUDE_CODE_OAUTH_TOKEN": "tok-test"})
+        envs = []
+
+        def run(cmd, **kw):
+            envs.append(kw.get("env"))
+            return FakeProc(stdout=_wrap('{"node": "inbox", "actions": []}'))
+
+        monkeypatch.setattr(poll.subprocess, "run", run)
+        poll.call_sonnet("prompt")
+        assert envs[0]["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-test"
+
+    def test_a_refused_config_credential_names_it_rather_than_sign_in(self, monkeypatch):
+        # the configured token outranks the keychain login: signing in again
+        # would change nothing, so the fix the log and heartbeat give must not say so
+        monkeypatch.setitem(poll.CONFIG, "claude_env", {"CLAUDE_CODE_OAUTH_TOKEN": "tok-test"})
+        envelope = json.dumps(
+            {"type": "result", "is_error": True, "result": "Invalid API key · Please run /login"}
+        )
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1, stdout=envelope)
+        )
+        with pytest.raises(poll.ClaudeAuthError) as err:
+            poll.call_sonnet("prompt")
+        assert "CLAUDE_CODE_OAUTH_TOKEN" in err.value.remedy
+        assert "claude_env" in str(err.value)
+        assert "sign in" not in err.value.remedy
+        assert "tok-test" not in str(err.value)
+
+    def test_without_a_config_credential_the_fix_is_still_to_sign_in(self, monkeypatch):
+        envelope = json.dumps(
+            {"type": "result", "is_error": True, "result": "Not logged in · Please run /login"}
+        )
+        monkeypatch.setattr(
+            poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1, stdout=envelope)
+        )
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: pytest.fail("must not retry"))
+        with pytest.raises(poll.ClaudeAuthError) as err:
+            poll.call_sonnet("prompt")
+        assert err.value.remedy == "run `claude` and sign in"
+
     def test_a_missing_cli_fails_fast_and_names_the_fixes(self, tmp_path, monkeypatch):
         # a real subprocess.run on a path with nothing there: no claude is ever run
         absent = tmp_path / "claude"

@@ -224,6 +224,13 @@ Sign in again, or reinstall or set `claude_bin`; the next poll logs `claude cli
 answering again` and classifies the held annotations. Each poll during the
 lapse retries one call, which fails fast and costs nothing.
 
+The login an interactive `claude` sign-in stores has to refresh itself, and it
+lapses now and then. To give the watcher a login that outlasts it, run `claude
+setup-token` and put the token in `config.json` as `"claude_env":
+{"CLAUDE_CODE_OAUTH_TOKEN": "…"}`; `doctor.py` then reports `signed in with
+CLAUDE_CODE_OAUTH_TOKEN from config.json`. When that token is the one refused,
+the log and heartbeat say to replace it rather than to sign in.
+
 To run without the CLI on purpose, set `"model": "rules"` in `config.json`.
 Every annotation is then placed by `routing.json` alone and recorded as
 `rules`, nothing is billed, and `doctor.py` skips the CLI check.

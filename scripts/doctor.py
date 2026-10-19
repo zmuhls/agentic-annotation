@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import claude_bin, load_config  # noqa: E402
+from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
 from bootstrap_ia import get as api_get  # noqa: E402
 
 POLL_SCRIPT = ROOT / "scripts" / "poll.py"
@@ -268,16 +268,21 @@ def check_token(config, fetch=fetch_profile):
     return Check("ok", "token", f"recognized by the api as {userid}")
 
 
-def claude_signed_in(binary):
+def claude_signed_in(binary, env=None):
     """True or False per `claude auth status`, or None when the CLI cannot say.
 
     The subcommand reads the local login and makes no model call, so asking
     costs nothing. A CLI too old to have it, or one that will not start, is
-    None rather than a failure: the binary check already passed.
+    None rather than a failure: the binary check already passed. `env` is the
+    environment the watcher gives the CLI, so the login asked about is its own.
     """
     try:
         proc = subprocess.run(
-            [str(binary), "auth", "status", "--json"], capture_output=True, text=True, timeout=30
+            [str(binary), "auth", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
         status = json.loads(proc.stdout)
         return bool(status["loggedIn"])
@@ -288,6 +293,13 @@ def claude_signed_in(binary):
 def check_claude(config):
     if config.get("model") == "rules":
         return Check("ok", "claude cli", 'not needed: config.json sets "model": "rules"')
+    if config.get("claude_env") is not None and not isinstance(config["claude_env"], dict):
+        return Check(
+            "fail",
+            "claude cli",
+            'claude_env in config.json must be an object of "NAME": "value" pairs; '
+            "the watcher ignores it until it is",
+        )
     binary = claude_bin(config)
     if not Path(binary).exists():
         return Check(
@@ -296,7 +308,7 @@ def check_claude(config):
             f"not found at {binary} — the watcher holds new annotations until it is "
             'installed; set claude_bin in config.json, or "model": "rules" to run without it',
         )
-    signed_in = claude_signed_in(binary)
+    signed_in = claude_signed_in(binary, claude_env(config))
     if signed_in is False:
         return Check(
             "fail",
@@ -306,7 +318,9 @@ def check_claude(config):
         )
     if signed_in is None:
         return Check("ok", "claude cli", f"{binary} (sign-in state unknown)")
-    return Check("ok", "claude cli", f"{binary}, signed in")  # never print the account
+    credential = config_credential(config)
+    via = f" with {credential} from config.json" if credential else ""
+    return Check("ok", "claude cli", f"{binary}, signed in{via}")  # never print the account
 
 
 def run_checks(

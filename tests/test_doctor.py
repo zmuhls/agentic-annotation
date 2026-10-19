@@ -320,6 +320,34 @@ class TestCheckClaude:
         assert check.level == "fail"
         assert "sign in" in check.detail
 
+    def test_asks_with_the_credential_config_json_hands_the_cli(self, tmp_path, monkeypatch):
+        # the answer must be the one the watcher's own calls will meet
+        binary = tmp_path / "claude"
+        binary.write_text("")
+        envs = []
+
+        def run(cmd, **kw):
+            envs.append(kw.get("env"))
+            return FakeProc(0, json.dumps({"loggedIn": True, "authMethod": "oauth_token"}))
+
+        monkeypatch.setattr(doctor.subprocess, "run", run)
+        config = {"claude_bin": str(binary), "claude_env": {"CLAUDE_CODE_OAUTH_TOKEN": "tok-test"}}
+        check = doctor.check_claude(config)
+        assert envs[0]["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-test"
+        assert check.level == "ok"
+        assert "CLAUDE_CODE_OAUTH_TOKEN" in check.detail  # which login is in use
+        assert "tok-test" not in check.detail
+
+    def test_a_claude_env_that_is_not_an_object_fails(self, tmp_path):
+        binary = tmp_path / "claude"
+        binary.write_text("")
+        check = doctor.check_claude(
+            {"claude_bin": str(binary), "claude_env": "CLAUDE_CODE_OAUTH_TOKEN=tok-test"}
+        )
+        assert check.level == "fail"
+        assert "claude_env" in check.detail
+        assert "tok-test" not in check.detail
+
     @pytest.mark.parametrize("stdout", ["", "error: unknown command 'auth'", "[]"])
     def test_a_cli_that_cannot_say_still_passes_on_the_binary(self, tmp_path, monkeypatch, stdout):
         # an older CLI without `auth status` must not turn doctor red

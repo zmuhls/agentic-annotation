@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import claude_bin, load_config  # noqa: E402
+from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
 from bootstrap_ia import first_child, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
@@ -321,6 +321,11 @@ class ClaudeUnavailableError(RuntimeError):
     summary = "claude cli unavailable"
     remedy = "run scripts/doctor.py"
 
+    def __init__(self, message, remedy=None):
+        super().__init__(message)
+        if remedy:
+            self.remedy = remedy  # this failure's fix, over the class's usual one
+
 
 class ClaudeAuthError(ClaudeUnavailableError):
     """The claude CLI has no working login."""
@@ -359,6 +364,7 @@ def call_sonnet(prompt, attempts=2, meta=None):
                 capture_output=True,
                 text=True,
                 timeout=600,
+                env=claude_env(CONFIG),
             )
         except OSError as e:  # FileNotFoundError, PermissionError: no retry heals it
             raise ClaudeMissingError(
@@ -369,8 +375,16 @@ def call_sonnet(prompt, attempts=2, meta=None):
             break
         detail = cli_error_text(proc)
         if any(m in detail.lower() for m in AUTH_MARKERS):
+            # A credential from config.json outranks the stored login, so when
+            # it is the one refused, signing in again would change nothing.
+            credential = config_credential(CONFIG)
+            remedy = (
+                f"replace {credential} in config.json's claude_env"
+                if credential
+                else ClaudeAuthError.remedy
+            )
             raise ClaudeAuthError(
-                f"claude cli is not authenticated ({detail}) — run `claude` and sign in"
+                f"claude cli is not authenticated ({detail}) — {remedy}", remedy=remedy
             )
         if attempt < attempts - 1:
             time.sleep(30)  # transient API outages are common enough to ride out

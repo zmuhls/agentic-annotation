@@ -9,6 +9,15 @@ on `main`.
 
 ### Added
 
+- `claude_env` in `config.json` passes variables to the `claude` CLI, which a
+  scheduler never passes from a shell profile. Its main use is a long-lived
+  login from `claude setup-token`, as `CLAUDE_CODE_OAUTH_TOKEN`, in place of
+  the stored interactive login, which lapsed three times in two months and
+  stopped classification each time. `doctor.py` asks `claude auth status` with
+  the same environment, names the credential in use, and fails a `claude_env`
+  that is not an object. When a `claude_env` credential is refused, the log
+  and heartbeat say to replace it rather than to sign in again.
+
 - `"model": "rules"` in `config.json` runs the watcher without the `claude`
   CLI. Each annotation keeps its `routing.json` placement, recorded as `rules`
   rather than `rules-fallback`, nothing is billed, and `doctor.py` skips its

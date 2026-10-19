@@ -12,7 +12,10 @@ checkout you run the commands in.
 - **The `claude` CLI**, signed in — the classifier shells out to
   `claude -p --model claude-sonnet-5`. Install it, run `claude` once, and sign
   in. Missing or signed out, it holds new annotations in the queue until it
-  answers again. To run without it, set `"model": "rules"` in `config.json`:
+  answers again. That stored login has to keep refreshing itself and can
+  lapse; for a background job, `claude setup-token` prints a long-lived token
+  you can hand the watcher through `claude_env` (below) instead. To run
+  without the CLI, set `"model": "rules"` in `config.json`:
   every annotation is then placed by `routing.json` alone, recorded as
   `rules`, at no cost.
 - **A Hypothesis developer token** — <https://hypothes.is/account/developer>.
@@ -41,6 +44,7 @@ Fill in `config.json`:
 | `max_per_run` | most annotations one poll classifies (default 25; `0` = no limit) |
 | `max_daily_usd` | dollar ceiling on classification per UTC day (default `0` = no limit; the example sets 5) |
 | `claude_bin` | optional — an explicit path to the `claude` binary; otherwise `PATH`, then `~/.local/bin/claude` |
+| `claude_env` | optional — variables for the `claude` CLI, which launchd, systemd, and cron never pass from your shell. `{"CLAUDE_CODE_OAUTH_TOKEN": "…"}` with the token `claude setup-token` prints (needs a Claude subscription) gives the watcher a login of its own that outlasts the interactive one; `ANTHROPIC_API_KEY` works too and bills that API account. Either is a secret, like `api_token` |
 
 Then draft your taxonomy and placement tables from your own annotation history:
 
@@ -168,7 +172,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 
 | Symptom | Cause and fix |
 |---|---|
-| `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in. Until you do, new annotations wait in the queue (heartbeat `status: auth`, `doctor.py` fails the `claude cli` check), and the first poll after you sign in classifies them. The line is logged once per lapse. |
+| `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in, or set a long-lived token in `claude_env` so it stops lapsing; if the line names a `claude_env` credential, that credential was refused, so replace it. Until you do, new annotations wait in the queue (heartbeat `status: auth`, `doctor.py` fails the `claude cli` check), and the first poll after you sign in classifies them. The line is logged once per lapse. |
 | `claude cli could not start (…)` in `logs/watcher.log` | Nothing executable at the path the watcher tried, which the line names; an update or reinstall can move the CLI. Install it, or point `claude_bin` in `config.json` at it. Until then new annotations wait in the queue (heartbeat `status: no-cli`, `doctor.py` fails the `claude cli` check). Set `"model": "rules"` to run without it. |
 | Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`, or `bootstrap.py --write --force` to redraft both. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
