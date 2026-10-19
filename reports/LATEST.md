@@ -1,19 +1,19 @@
-# Daily maintenance — 2026-10-17
+# Daily maintenance — 2026-10-18
 
-**Health: green now, but degraded overnight.** The watcher is loaded (last exit 0) and a kickstarted launchd run on today's code stamped a fresh heartbeat. `doctor.py` reports all `ok`, and `poll.py` and `poll.py --dry-run` exit 0. Four annotations arrived at 23:57–23:59 UTC on 10-16. All four failed with `claude cli is not authenticated (Not logged in)` and were placed by the rules. The CLI reads as signed in now, both in this shell and in a launchd-like clean env. Why the login lapsed is not known. The cursor advanced normally, and the logs show no other errors apart from routine DNS blips.
+**Health: the watcher is up, but the `claude` CLI is now signed out, and someone needs to sign it back in.** The launchd job is loaded (last exit 0). A kickstarted run on today's code stamped `status: ok`, and both `poll.py` and `poll.py --dry-run` exit 0. No annotations have arrived since 10-17. The logs show `api unreachable` from 14:43Z on 10-18 to 03:12Z on 10-19. That window matches the machine sleeping with only brief dark wakes. The outage was logged once and cleared on the first poll after waking.
 
-**Fixed: a dead login no longer files annotations under the rules for good.** Each annotation was marked seen and the cursor moved past it, so signing in again never gave it a model pass. The next idle poll also reset `fallbacks` to 0, so `doctor.py` was back to green within 5 minutes. Now a `ClaudeAuthError` holds the queue the way the daily ceiling does. The cursor stays put, the heartbeat reads `status: auth` with a waiting count, the lapse is logged once rather than every poll, and the first poll after signing in logs `claude cli signed in again` and classifies the queue.
+**Auth lapse found by the live dry run.** One annotation was classified with the cursor and seen rewound, and both files were restored byte for byte afterward. The CLI answered `OAuth session expired and could not be refreshed`. `claude auth status` read signed in 10 minutes earlier and has read signed out ever since. The watcher held the annotation as designed: no rules fallback and nothing marked seen. `doctor.py` now fails its `claude cli` check. The `not authenticated` line at 03:24Z in `watcher.log` came from that dry run, not from launchd.
 
-**Changed: `doctor.py` asks `claude auth status`** (local, no model call, nothing spent). It fails when the CLI is signed out. It still passes on the binary alone when the CLI cannot answer, such as an older version. The account email in that output is never printed. Also, a dry run's `processing` line now says `(dry run)`: a maintainer dry run on 10-06 left a bare line that read like a real run that never finished.
+**Fixed: a missing `claude` binary now holds the queue the way a dead login does.** Before, a moved or uninstalled CLI logged a `FileNotFoundError` and filed every annotation under the rules for good. Now the heartbeat reads `status: no-cli` and names the fixes. `poll.py` and `doctor.py` share one binary lookup (`appconfig.claude_bin`), so doctor no longer fails a `~/.local/bin/claude` that the watcher would find. The recovery log line now reads `claude cli answering again`.
 
-**Verify:** 15 new tests, all red before the implementation. 234 pass. Ruff check and format are clean, and py_compile is ok. Cursor and seen were unchanged after the dry run. No paid classification ran.
+**Added: `"model": "rules"`.** Running without the CLI used to happen only as a side effect of a missing binary. It is now an explicit setting: placement comes from `routing.json` alone, at no cost, and doctor skips its CLI check. **Docs:** the Python floor is stated as 3.9 (it said 3.11), and the README lint steps now match CI.
 
-**Dependencies:** none added; the runtime is still stdlib-only.
+**Verify:** 8 new tests, all red before the implementation. Two existing tests were updated for the changed messages. 242 tests pass on Python 3.9. Ruff check and format are clean, and py_compile is ok. **Dependencies:** none added; the runtime is still stdlib-only.
 
 **Next candidates:**
-- **ACTION (human):** run `~/.local/bin/gh auth setup-git`. A plain `git push` still points at the missing `/usr/local/bin/gh`, so today's push again used a one-off `-c credential.helper` override.
-- **OPTIONAL (human):** the four 10-16 annotations keep their rules placement. They carry no action tags, so no action files are affected. To re-run them, drop their ids from `data/seen.json` and set the cursor just before 23:57Z (about 4 calls).
-- DOCS: INSTALL says Python 3.11+ and README says CI runs 3.11/3.12, but the watcher runs on 3.9 and CI tests 3.9. Fix the stated floor and add `requires-python` to pyproject.
-- ROBUSTNESS: a missing `claude` binary still takes the permanent rules fallback. It is the same systemic shape as a dead login and could hold the queue too.
-- PRO-GRADE: console entry points (these first need a configurable home for `data/` and `config.json`).
+- **ACTION (human):** run `claude` and sign in. New annotations wait in the queue until then.
+- **ACTION (human):** run `~/.local/bin/gh auth setup-git`. Today's push again needed a one-off credential-helper override.
+- **OPEN:** it is unknown whether the lapse was the token's own expiry or was triggered by this run. The nested `claude -p` inherited this desktop session's environment (`CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH=1`, `CLAUDE_CODE_CHILD_SESSION=1`), which launchd runs never see. Until that is settled, run live checks under a clean env, e.g. `env -i HOME="$HOME" PATH=/usr/bin:/bin python3 scripts/poll.py --dry-run`.
+- ROBUSTNESS: `claude auth status` reads local state only, so it reported signed in for a session that could not refresh. Look for a free check that tells the truth.
+- PRO-GRADE: a `[project]` table with `requires-python` and console entry points. This needs a configurable home for `data/` and `config.json`.
 - ADOPTERS: a worked bootstrap-preview example in `docs/examples/` against fictional groups.
