@@ -8,6 +8,7 @@
 
 **Next candidates:**
 - **ACTION (human):** run `claude setup-token` and put the token in `config.json` as `"claude_env": {"CLAUDE_CODE_OAUTH_TOKEN": "…"}`, or run `claude` and sign in again.
+- **ACTION (human):** run `~/.local/bin/gh auth setup-git`. git's credential helper still points at a missing `/usr/local/bin/gh`, so today's push again needed a one-off override.
 - ROBUSTNESS: `claude auth status` only reads local state, so it reports a fake env token as signed in. A free check that actually tests the login is still missing.
 - PRO-GRADE: add a `[project]` table with `requires-python` and console entry points. This needs a configurable home for `data/` and `config.json`.
 - ADOPTERS: add a worked bootstrap-preview example in `docs/examples/` using fictional groups.
