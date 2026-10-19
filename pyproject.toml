@@ -1,6 +1,8 @@
 # Minimal project config. Packaging + console entry points are a separate,
 # larger task (see reports agenda); for now this only pins the pytest layout so
 # `pytest` runs from the repo root with no arguments, in CI or a fresh clone.
+# The floor is Python 3.9, macOS's /usr/bin/python3, which ruff's target-version
+# below enforces; `requires-python` arrives with the [project] table.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

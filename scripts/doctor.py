@@ -23,7 +23,6 @@ Exits non-zero if anything is broken, so it can run from a cron/CI check.
 import argparse
 import json
 import plistlib
-import shutil
 import subprocess
 import sys
 from collections import namedtuple
@@ -32,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import load_config  # noqa: E402
+from appconfig import claude_bin, load_config  # noqa: E402
 from bootstrap_ia import get as api_get  # noqa: E402
 
 POLL_SCRIPT = ROOT / "scripts" / "poll.py"
@@ -287,9 +286,16 @@ def claude_signed_in(binary):
 
 
 def check_claude(config):
-    binary = config.get("claude_bin") or shutil.which("claude")
-    if not (binary and Path(binary).exists()):
-        return Check("fail", "claude cli", "not on PATH — classification would fall back to rules")
+    if config.get("model") == "rules":
+        return Check("ok", "claude cli", 'not needed: config.json sets "model": "rules"')
+    binary = claude_bin(config)
+    if not Path(binary).exists():
+        return Check(
+            "fail",
+            "claude cli",
+            f"not found at {binary} — the watcher holds new annotations until it is "
+            'installed; set claude_bin in config.json, or "model": "rules" to run without it',
+        )
     signed_in = claude_signed_in(binary)
     if signed_in is False:
         return Check(

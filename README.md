@@ -140,13 +140,16 @@ dev-only dependencies (no runtime deps beyond the stdlib):
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
-pip install pytest ruff
+pip install pytest "ruff==0.11.2"
 pytest
 ruff check .
+ruff format --check .
 ```
 
-GitHub Actions runs both on every push and pull request
-(`.github/workflows/ci.yml`, Python 3.11 and 3.12). CI has neither
+GitHub Actions runs the same three on every push and pull request
+(`.github/workflows/ci.yml`) on Python 3.9, the oldest supported and the one
+macOS ships as `/usr/bin/python3`, and on 3.11 and 3.12. Ruff is pinned there
+too, so a new release's rules cannot fail CI on code that passed locally. CI has neither
 `config.json` nor `routing.json`; both fall back to their committed `.example`
 so imports still resolve, and the routing tests supply fictional tables of their
 own rather than asserting against anyone's real groups.
@@ -209,15 +212,21 @@ ok   heartbeat: last poll 3 min ago, 0 processed, $4.31 spent on classification 
 Sonnet failures are non-fatal — the annotation still gets placed by the rules
 and the record is marked `rules-fallback`. The watcher log names the cause.
 
-An expired login on the `claude` CLI is the exception, and the most common
-cause. It is reported once as `claude cli is not authenticated (…)`. A dead
-login fails every annotation the same way, so the watcher does not file them
-under the rules. It holds the queue, as the daily ceiling does: the cursor
-stays put, the heartbeat reads `status: auth` with a count of what is waiting,
-and `doctor.py` fails its `claude cli` check (it asks `claude auth status`, which
-makes no model call). Run `claude` and sign in again; the next poll logs
-`claude cli signed in again` and classifies the held annotations. Each poll
-during the lapse retries one call, which fails fast and costs nothing.
+A CLI that cannot answer at all is the exception. An expired login, the most
+common cause, is reported once as `claude cli is not authenticated (…)`; a
+binary that is gone, which an update or reinstall can cause, as `claude cli
+could not start (…)`. Either fails every annotation the same way, so the
+watcher does not file them under the rules. It holds the queue, as the daily
+ceiling does: the cursor stays put, the heartbeat reads `status: auth` or
+`status: no-cli` with a count of what is waiting, and `doctor.py` fails its
+`claude cli` check (it asks `claude auth status`, which makes no model call).
+Sign in again, or reinstall or set `claude_bin`; the next poll logs `claude cli
+answering again` and classifies the held annotations. Each poll during the
+lapse retries one call, which fails fast and costs nothing.
+
+To run without the CLI on purpose, set `"model": "rules"` in `config.json`.
+Every annotation is then placed by `routing.json` alone and recorded as
+`rules`, nothing is billed, and `doctor.py` skips the CLI check.
 
 ## Network faults
 

@@ -6,12 +6,15 @@ checkout you run the commands in.
 
 ## 1. Requirements
 
-- **Python 3.11+** — the runtime is stdlib only, no `pip install` needed to run it.
+- **Python 3.9+** — macOS's own `/usr/bin/python3` (3.9) is enough, and CI
+  tests 3.9, 3.11, and 3.12. The runtime is stdlib only, no `pip install`
+  needed to run it.
 - **The `claude` CLI**, signed in — the classifier shells out to
   `claude -p --model claude-sonnet-5`. Install it, run `claude` once, and sign
-  in. Without it the watcher still works, but every annotation is placed by the
-  rules and recorded as `rules-fallback`. Installed but signed out, it holds
-  new annotations in the queue until you sign in.
+  in. Missing or signed out, it holds new annotations in the queue until it
+  answers again. To run without it, set `"model": "rules"` in `config.json`:
+  every annotation is then placed by `routing.json` alone, recorded as
+  `rules`, at no cost.
 - **A Hypothesis developer token** — <https://hypothes.is/account/developer>.
 
 Each classification costs roughly $0.10 of API usage, and the watcher only calls
@@ -34,10 +37,10 @@ Fill in `config.json`:
 | `user` | `acct:yourname@hypothes.is` |
 | `owner` | how the prompt should name whose knowledge system this is |
 | `since` | where the backfill and the watcher's first poll start (ISO 8601). Without it the backfill pulls your whole history and the watcher classifies only what you annotate after its first run |
-| `model` | `claude-sonnet-5` unless you have a reason to change it |
+| `model` | `claude-sonnet-5` unless you have a reason to change it; `rules` runs without the `claude` CLI and places by `routing.json` alone |
 | `max_per_run` | most annotations one poll classifies (default 25; `0` = no limit) |
 | `max_daily_usd` | dollar ceiling on classification per UTC day (default `0` = no limit; the example sets 5) |
-| `claude_bin` | optional — an explicit path to the `claude` binary |
+| `claude_bin` | optional — an explicit path to the `claude` binary; otherwise `PATH`, then `~/.local/bin/claude` |
 
 Then draft your taxonomy and placement tables from your own annotation history:
 
@@ -166,6 +169,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 | Symptom | Cause and fix |
 |---|---|
 | `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in. Until you do, new annotations wait in the queue (heartbeat `status: auth`, `doctor.py` fails the `claude cli` check), and the first poll after you sign in classifies them. The line is logged once per lapse. |
+| `claude cli could not start (…)` in `logs/watcher.log` | Nothing executable at the path the watcher tried, which the line names; an update or reinstall can move the CLI. Install it, or point `claude_bin` in `config.json` at it. Until then new annotations wait in the queue (heartbeat `status: no-cli`, `doctor.py` fails the `claude cli` check). Set `"model": "rules"` to run without it. |
 | Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`, or `bootstrap.py --write --force` to redraft both. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. |
 | `hypothesis api rejected the request (…)` | A `4xx` from the API: the request will fail the same way on every poll until `config.json` changes. Not retried, by design. The text in parentheses is the API's own reason. |

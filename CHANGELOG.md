@@ -9,6 +9,12 @@ on `main`.
 
 ### Added
 
+- `"model": "rules"` in `config.json` runs the watcher without the `claude`
+  CLI. Each annotation keeps its `routing.json` placement, recorded as `rules`
+  rather than `rules-fallback`, nothing is billed, and `doctor.py` skips its
+  CLI check. Running without the CLI used to be the side effect of a missing
+  binary. Now it is a setting, so a missing binary can be treated as a fault.
+
 - `doctor.py` checks the token against `/api/profile` and fails when the API
   does not recognize it, warns when it belongs to an account other than the
   one `config.json` watches, and warns (not fails) when the API is unreachable.
@@ -81,6 +87,9 @@ on `main`.
 
 ### Changed
 
+- README and INSTALL state the real Python floor, 3.9 (macOS's
+  `/usr/bin/python3`, which CI tests), rather than 3.11. The README's lint
+  steps match CI: ruff pinned, and `ruff format --check` included.
 - A request the API rejects (a `4xx` other than `429`, which `search()` never
   retries) is no longer logged as "retrying next run". It is refused the same
   way on every poll until `config.json` changes, so the log line now says a
@@ -104,6 +113,16 @@ on `main`.
   explain the kill.
 
 ### Fixed
+
+- A `claude` binary that will not start (moved by an update, uninstalled, not
+  executable) holds the queue like a dead login (`poll.ClaudeMissingError`),
+  instead of logging a `FileNotFoundError` and filing every annotation under
+  the rules for good. The heartbeat reads `status: no-cli` and names the fixes.
+  Both errors share `poll.ClaudeUnavailableError`, and the recovery line is now
+  `claude cli answering again`, since it no longer means only a new sign-in.
+  `doctor.py` resolves the binary the way `poll.py` does (`appconfig.claude_bin`:
+  `claude_bin`, then `PATH`, then `~/.local/bin/claude`), so it no longer fails a
+  CLI the watcher would find off a shell's `PATH`.
 
 - A signed-out `claude` CLI no longer files annotations under the rules for
   good. Each one was placed by the rules, marked seen, and passed by the

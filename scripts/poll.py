@@ -15,7 +15,6 @@ Manual run: python3 scripts/poll.py [--dry-run]
 
 import fcntl
 import json
-import shutil
 import signal
 import subprocess
 import sys
@@ -29,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import load_config  # noqa: E402
+from appconfig import claude_bin, load_config  # noqa: E402
 from bootstrap_ia import first_child, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
@@ -44,6 +43,10 @@ from build_ia import (  # noqa: E402
 CONFIG = load_config()
 API = "https://api.hypothes.is/api"
 MODEL = CONFIG.get("model", "claude-sonnet-5")
+# `"model": "rules"` runs the watcher without the claude CLI: every annotation
+# keeps record_for's rule placement, at no cost. Otherwise a missing CLI holds
+# the queue as a signed-out one does, since it fails every annotation alike.
+RULES_MODEL = "rules"
 # How the classifier prompt names whose knowledge system this is. Keeping the
 # owner in config rather than in the prompt string is what lets someone else
 # adopt the repo without editing code.
@@ -207,14 +210,6 @@ def fetch_new(cursor, page_size=200, key="updated"):
         search_after = ms_before(last) if batch else last
 
 
-def claude_bin():
-    return (
-        CONFIG.get("claude_bin")
-        or shutil.which("claude")
-        or str(Path.home() / ".local" / "bin" / "claude")
-    )
-
-
 def siblings_at(node, exclude_id, limit=6):
     """Compact context: recent annotations already mapped to the same node."""
     if not MAP_FILE.exists():
@@ -312,14 +307,39 @@ def cli_error_text(proc):
 AUTH_MARKERS = ("authenticate", "oauth", "unauthorized", "invalid api key", "please run /login")
 
 
-class ClaudeAuthError(RuntimeError):
-    """The claude CLI has no working login.
+class ClaudeUnavailableError(RuntimeError):
+    """No call can succeed until someone fixes the claude CLI itself.
 
-    Not a fault of the annotation at hand: every call fails the same way until
-    someone signs in. poll_once holds the queue on it rather than letting
-    process() file each annotation under the rules, which marked them seen, so
-    on 2026-10-16 four annotations lost their model pass for good.
+    Not a fault of the annotation at hand: every call fails the same way. So
+    poll_once holds the queue on it rather than letting process() file each
+    annotation under the rules, which marked them seen, so on 2026-10-16 four
+    annotations lost their model pass for good. `status` and `remedy` are what
+    the heartbeat reports while the queue waits.
     """
+
+    status = "classifier"
+    summary = "claude cli unavailable"
+    remedy = "run scripts/doctor.py"
+
+
+class ClaudeAuthError(ClaudeUnavailableError):
+    """The claude CLI has no working login."""
+
+    status = "auth"
+    summary = "claude cli not signed in"
+    remedy = "run `claude` and sign in"
+
+
+class ClaudeMissingError(ClaudeUnavailableError):
+    """The claude CLI will not start: nothing at its path, or not executable.
+
+    Updating or reinstalling the CLI can move it, and the watcher used to log a
+    FileNotFoundError and fall back to the rules for every annotation after.
+    """
+
+    status = "no-cli"
+    summary = "claude cli not found"
+    remedy = 'install it, set claude_bin in config.json, or set "model": "rules"'
 
 
 def call_sonnet(prompt, attempts=2, meta=None):
@@ -330,15 +350,21 @@ def call_sonnet(prompt, attempts=2, meta=None):
     the model's JSON, which is what every caller actually wants, and telemetry
     a caller does not ask for costs it nothing.
     """
-    proc, detail = None, ""
+    proc, detail, binary = None, "", claude_bin(CONFIG)
     for attempt in range(attempts):
-        proc = subprocess.run(
-            [claude_bin(), "-p", "--model", MODEL, "--output-format", "json"],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
+        try:
+            proc = subprocess.run(
+                [binary, "-p", "--model", MODEL, "--output-format", "json"],
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+        except OSError as e:  # FileNotFoundError, PermissionError: no retry heals it
+            raise ClaudeMissingError(
+                f"claude cli could not start ({binary}: {e.strerror or e}) — "
+                f"{ClaudeMissingError.remedy} to classify by the rules alone"
+            ) from e
         if proc.returncode == 0:
             break
         detail = cli_error_text(proc)
@@ -530,12 +556,15 @@ def clear_network_failure():
 def clear_auth_failure():
     if AUTHFAIL_FILE.exists():
         AUTHFAIL_FILE.unlink()
-        log("claude cli signed in again; classifying the annotations held for it")
+        log("claude cli answering again; classifying the annotations held for it")
 
 
-def process(ann, dry_run=False):
-    wanted = actions_for(ann.get("tags", []))
-    record = record_for(ann)  # rules-based baseline record
+def classify(ann, record, dry_run=False):
+    """Refine the rules' `record` with the model's placement; return its actions.
+
+    A failure confined to this annotation leaves the rule placement, marked
+    `rules-fallback`. One that every annotation would hit propagates.
+    """
     actions = []
     meta = {}
     try:
@@ -553,7 +582,7 @@ def process(ann, dry_run=False):
             actions = [legacy]
         if result.get("new_node") and not dry_run:
             note_emergent(record["node"], record.get("role", ""), ann)
-    except ClaudeAuthError:
+    except ClaudeUnavailableError:
         raise  # the same for every annotation: poll_once holds the queue
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
@@ -566,6 +595,13 @@ def process(ann, dry_run=False):
     else:
         if not dry_run:
             clear_auth_failure()
+    return actions
+
+
+def process(ann, dry_run=False):
+    wanted = actions_for(ann.get("tags", []))
+    record = record_for(ann)  # rules-based baseline record
+    actions = [] if MODEL == RULES_MODEL else classify(ann, record, dry_run)
     # every tagged action produces a file: stub any the model missed
     produced = {a.get("type") for a in actions}
     for tag in wanted:
@@ -686,9 +722,11 @@ def poll_once(dry_run):
             )
         return
     fresh, deferred = cap_batch(fresh, MAX_PER_RUN)
-    # While a login lapse stands, each poll retries the first held annotation;
-    # announcing that every five minutes is the noise note_once exists to stop.
-    # The run that signs back in says so from process().
+    if MODEL == RULES_MODEL and not dry_run and AUTHFAIL_FILE.exists():
+        AUTHFAIL_FILE.unlink()  # from before the switch: there is no CLI to wait on now
+    # While a login lapse or a missing CLI stands, each poll retries the first
+    # held annotation; announcing that every five minutes is the noise note_once
+    # exists to stop. The run that gets an answer again says so from classify().
     if dry_run or not AUTHFAIL_FILE.exists():
         log(
             f"processing {len(fresh)} new/updated annotation(s) with {MODEL}"
@@ -699,20 +737,20 @@ def poll_once(dry_run):
                 else ""
             )
         )
-    fallbacks, spend, done, signed_out = 0, 0.0, 0, False
+    fallbacks, spend, done, unavailable = 0, 0.0, 0, None
     for ann in fresh:
         # Checked before each call, since a call's price is known only after it.
         if budget_left is not None and spend >= budget_left:
             break
         try:
             record = process(ann, dry_run=dry_run)
-        except ClaudeAuthError as e:
+        except ClaudeUnavailableError as e:
             msg = f"{e}; new annotations wait in the queue until then"
             if dry_run:
                 log(msg)  # a dry run marks nothing, so the real watcher still logs it
             else:
                 note_once(AUTHFAIL_FILE, msg)
-            signed_out = True
+            unavailable = e
             break
         done += 1
         fallbacks += record.get("classified_by") == "rules-fallback"
@@ -722,7 +760,7 @@ def poll_once(dry_run):
             SEEN_FILE.write_text(json.dumps(seen))
             CURSOR_FILE.write_text(json.dumps({"search_after": ann["updated"]}))
     held = len(fresh) - done
-    if held and not signed_out:
+    if held and unavailable is None:
         log(
             f"daily spend ceiling reached (${MAX_DAILY_USD:.2f}); "
             f"{held} annotation(s) wait for tomorrow (UTC)"
@@ -731,13 +769,13 @@ def poll_once(dry_run):
         if MAP_FILE.exists():
             write_overview([json.loads(line) for line in MAP_FILE.open()])
         waiting = deferred + held
-        if signed_out:
+        if unavailable is not None:
             record_health(
-                "auth",
+                unavailable.status,
                 processed=done,
                 fallbacks=fallbacks,
                 cost_usd=spend,
-                detail=f"claude cli not signed in; {waiting} waiting — run `claude` and sign in",
+                detail=f"{unavailable.summary}; {waiting} waiting — {unavailable.remedy}",
             )
         elif held:
             record_health(

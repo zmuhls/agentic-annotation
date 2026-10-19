@@ -14,6 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
+import appconfig  # noqa: E402
 import doctor  # noqa: E402
 
 POLL = doctor.POLL_SCRIPT
@@ -337,7 +338,25 @@ class TestCheckClaude:
     def test_a_missing_binary_is_not_asked_anything(self, tmp_path):
         check = doctor.check_claude({"claude_bin": str(tmp_path / "absent")})
         assert check.level == "fail"
-        assert "not on PATH" in check.detail
+        assert "not found" in check.detail
+        assert "holds new annotations" in check.detail  # the watcher no longer files them
+        assert '"model": "rules"' in check.detail  # the way to run without one
+
+    def test_rules_mode_needs_no_binary(self, tmp_path):
+        check = doctor.check_claude({"model": "rules", "claude_bin": str(tmp_path / "absent")})
+        assert check.level == "ok"
+        assert "rules" in check.detail
+
+    def test_looks_where_the_watcher_looks_off_path(self, tmp_path, monkeypatch):
+        # launchd's PATH is not a login shell's: poll.py falls back to the
+        # installer's ~/.local/bin/claude, so doctor must not fail what it finds
+        binary = tmp_path / "claude"
+        binary.write_text("")
+        monkeypatch.setattr(appconfig.shutil, "which", lambda name: None)
+        monkeypatch.setattr(appconfig, "DEFAULT_CLAUDE_BIN", binary)
+        check = doctor.check_claude({})  # autouse: OSError, so sign-in state unknown
+        assert check.level == "ok"
+        assert str(binary) in check.detail
 
 
 class TestExitCode:

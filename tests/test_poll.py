@@ -103,6 +103,23 @@ class TestCallSonnet:
         with pytest.raises(poll.ClaudeAuthError, match="Not logged in"):
             poll.call_sonnet("prompt")
 
+    def test_a_missing_cli_fails_fast_and_names_the_fixes(self, tmp_path, monkeypatch):
+        # a real subprocess.run on a path with nothing there: no claude is ever run
+        absent = tmp_path / "claude"
+        monkeypatch.setitem(poll.CONFIG, "claude_bin", str(absent))
+        monkeypatch.setattr(
+            poll.time, "sleep", lambda *a: pytest.fail("must not sleep on a missing cli")
+        )
+        with pytest.raises(poll.ClaudeMissingError) as err:
+            poll.call_sonnet("prompt", attempts=3)
+        assert str(absent) in str(err.value)
+        assert "claude_bin" in str(err.value)
+        assert '"model": "rules"' in str(err.value)
+
+    def test_a_missing_cli_and_a_dead_login_hold_the_queue_alike(self):
+        assert issubclass(poll.ClaudeMissingError, poll.ClaudeUnavailableError)
+        assert issubclass(poll.ClaudeAuthError, poll.ClaudeUnavailableError)
+
     def test_error_text_without_any_output(self, monkeypatch):
         monkeypatch.setattr(poll.subprocess, "run", lambda *a, **k: FakeProc(returncode=1))
         monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
@@ -184,12 +201,31 @@ class TestProcess:
         assert not poll.MAP_FILE.exists()
         assert not poll.ACTIONS_DIR.exists()
 
+    def test_a_missing_cli_is_not_filed_as_a_rules_fallback(self, tmp_path, monkeypatch):
+        # a moved or uninstalled binary fails every annotation alike, as a dead login does
+        monkeypatch.setitem(poll.CONFIG, "claude_bin", str(tmp_path / "absent"))
+        with pytest.raises(poll.ClaudeMissingError):
+            poll.process(self._ann())
+        assert not poll.MAP_FILE.exists()
+        assert not poll.ACTIONS_DIR.exists()
+
+    def test_rules_mode_places_by_the_rules_without_the_cli(self, monkeypatch):
+        monkeypatch.setattr(poll, "MODEL", "rules")
+        monkeypatch.setattr(
+            poll, "call_sonnet", lambda *a, **k: pytest.fail("rules mode must not call the cli")
+        )
+        rec = poll.process(self._ann())
+        assert rec["classified_by"] == "rules"  # not "rules-fallback": nothing failed
+        assert rec["node"] == "artifacts/personal-site"
+        assert len(list(poll.ACTIONS_DIR.iterdir())) == 1  # the revision tag still files
+
     def test_the_first_classification_after_a_lapse_says_so(self, monkeypatch):
         poll.AUTHFAIL_FILE.write_text("claude cli is not authenticated (Not logged in)")
         monkeypatch.setattr(poll, "call_sonnet", lambda p, **kw: {"node": "inbox", "actions": []})
         poll.process(self._ann(tags=[]))
         assert not poll.AUTHFAIL_FILE.exists()
-        assert "signed in again" in poll.LOG_FILE.read_text()
+        # the same marker covers a reinstalled binary, so the line cannot say "signed in"
+        assert "claude cli answering again" in poll.LOG_FILE.read_text()
 
     def test_a_dry_run_leaves_the_lapse_marker_alone(self, monkeypatch):
         poll.AUTHFAIL_FILE.write_text("claude cli is not authenticated (Not logged in)")
@@ -766,6 +802,43 @@ class TestLoginLapse:
         assert "not authenticated" in poll.LOG_FILE.read_text()
         assert not poll.AUTHFAIL_FILE.exists()
         assert not poll.HEALTH_FILE.exists()
+
+
+@pytest.mark.usefixtures("routing")
+class TestMissingCli:
+    """A claude binary that is gone holds the queue like a dead login, rather
+    than filing every annotation under the rules for good."""
+
+    def test_holds_the_queue_and_says_what_to_fix(self, tmp_path, monkeypatch):
+        rows = [
+            sample_annotation(id="a0", updated="2026-10-18T10:00:00+00:00"),
+            sample_annotation(id="a1", updated="2026-10-18T10:01:00+00:00"),
+        ]
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        monkeypatch.setitem(poll.CONFIG, "claude_bin", str(tmp_path / "absent"))
+        monkeypatch.setitem(poll.CONFIG, "since", "2026-10-18T00:00:00+00:00")  # no cursor write
+        poll.main()
+        health = json.loads(poll.HEALTH_FILE.read_text())
+        assert health["status"] == "no-cli"
+        assert "2 waiting" in health["detail"]
+        assert "claude_bin" in health["detail"]
+        assert not poll.CURSOR_FILE.exists()
+        assert not poll.SEEN_FILE.exists()
+        log = poll.LOG_FILE.read_text()
+        assert "could not start" in log
+        assert "rules-fallback" not in log and "falling back" not in log
+
+    def test_switching_to_rules_mode_ends_the_hold(self, monkeypatch):
+        # the lapse marker mutes the "processing" line; with no CLI to wait
+        # on, a marker left from before the switch would mute it for good
+        poll.AUTHFAIL_FILE.write_text("claude cli could not start (…)")
+        rows = [sample_annotation(id="a0", updated="2026-10-18T10:00:00+00:00", tags=[])]
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: rows)
+        monkeypatch.setattr(poll, "MODEL", "rules")
+        poll.main()
+        assert not poll.AUTHFAIL_FILE.exists()
+        assert "processing 1" in poll.LOG_FILE.read_text()
+        assert json.loads(poll.HEALTH_FILE.read_text())["status"] == "ok"
 
 
 class TestDryRunLog:

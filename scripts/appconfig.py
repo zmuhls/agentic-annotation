@@ -10,9 +10,13 @@ local setup.
 """
 
 import json
+import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Where Claude Code's native installer puts the CLI. launchd starts jobs with a
+# bare PATH that rarely includes it, so PATH alone misses a working install.
+DEFAULT_CLAUDE_BIN = Path.home() / ".local" / "bin" / "claude"
 
 
 def load_json_with_example(name):
@@ -30,3 +34,10 @@ def load_config():
 
 def load_routing():
     return load_json_with_example("routing")
+
+
+def claude_bin(config):
+    """The claude CLI the watcher runs: `claude_bin` from config, else PATH,
+    else the installer's default. One answer for poll.py and doctor.py, so the
+    health check never fails a binary the watcher would find."""
+    return config.get("claude_bin") or shutil.which("claude") or str(DEFAULT_CLAUDE_BIN)
