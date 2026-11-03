@@ -9,6 +9,15 @@ on `main`.
 
 ### Added
 
+- Each poll asks `/api/profile` whose token it holds before it searches. When
+  the API does not recognize the token, the poll holds. It does not search,
+  the cursor stays put, the log says so once, and the heartbeat reads
+  `status: token` until a poll sees a recognized token again. `/api/search`
+  answers a revoked token with public rows and no error, so a dead token
+  read as a quiet `ok`, and the first public annotation to arrive would have
+  moved the cursor past every private one before it. The backfill exits on
+  the same check and leaves `data/annotations.jsonl` as it was.
+
 - `claude_env` in `config.json` passes variables to the `claude` CLI, which a
   scheduler never passes from a shell profile. Its main use is a long-lived
   login from `claude setup-token`, as `CLAUDE_CODE_OAUTH_TOKEN`, in place of

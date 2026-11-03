@@ -30,6 +30,7 @@ _WRITE_PATHS = (
     "LOCK_FILE",
     "NETFAIL_FILE",
     "AUTHFAIL_FILE",
+    "TOKENFAIL_FILE",
     "HEALTH_FILE",
 )
 
@@ -39,6 +40,25 @@ def isolate_poll_paths(tmp_path, monkeypatch):
     for attr in _WRITE_PATHS:
         original = getattr(poll, attr)
         monkeypatch.setattr(poll, attr, tmp_path / original.name)
+
+
+_REAL_TOKEN_OWNER = getattr(poll, "token_owner", None)
+
+
+@pytest.fixture(autouse=True)
+def recognized_token(monkeypatch):
+    """Answer every poll's /api/profile check with the watched account.
+
+    Most poll tests replace `fetch_new` and nothing else, so without this the
+    token check before it would go out to api.hypothes.is. A test about the
+    check itself sets its own answer, or asks for `real_token_owner`.
+    """
+    monkeypatch.setattr(poll, "token_owner", lambda: poll.CONFIG.get("user"), raising=False)
+
+
+@pytest.fixture
+def real_token_owner(monkeypatch):
+    monkeypatch.setattr(poll, "token_owner", _REAL_TOKEN_OWNER)
 
 
 @pytest.fixture(autouse=True)

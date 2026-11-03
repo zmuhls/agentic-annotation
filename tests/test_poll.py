@@ -847,6 +847,125 @@ class TestLoginLapse:
         assert not poll.HEALTH_FILE.exists()
 
 
+class TestTokenOwner:
+    """/api/profile is the one endpoint that says whether the api knows the token."""
+
+    def _profile(self, monkeypatch, *outcomes):
+        calls = []
+
+        def fake(req, timeout=None):
+            calls.append(req)
+            outcome = outcomes[len(calls) - 1]
+            if isinstance(outcome, Exception):
+                raise outcome
+            return TestSearchRetries._Resp(outcome)
+
+        monkeypatch.setattr(poll.urllib.request, "urlopen", fake)
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
+        monkeypatch.setattr(poll, "CONFIG", {**poll.CONFIG, "api_token": "test-token"})
+        return calls
+
+    @pytest.mark.usefixtures("real_token_owner")
+    def test_names_the_account_the_api_takes_the_token_for(self, monkeypatch):
+        calls = self._profile(monkeypatch, {"userid": "acct:a@hypothes.is"})
+        assert poll.token_owner() == "acct:a@hypothes.is"
+        assert calls[0].full_url.endswith("/api/profile")
+        assert calls[0].get_header("Authorization") == "Bearer test-token"
+
+    @pytest.mark.usefixtures("real_token_owner")
+    def test_an_anonymous_answer_is_no_owner(self, monkeypatch):
+        # probed live: a revoked token gets 200 and the anonymous profile
+        self._profile(monkeypatch, {"userid": None, "authority": "hypothes.is"})
+        assert poll.token_owner() is None
+
+    @pytest.mark.usefixtures("real_token_owner")
+    def test_rides_out_a_transient_fault_like_search(self, monkeypatch):
+        calls = self._profile(
+            monkeypatch,
+            ConnectionResetError(54, "Connection reset by peer"),
+            {"userid": "acct:a@hypothes.is"},
+        )
+        assert poll.token_owner() == "acct:a@hypothes.is"
+        assert len(calls) == 2
+
+
+class TestUnrecognizedToken:
+    """A token the api no longer knows holds the queue.
+
+    /api/search answers it as anonymous with public rows and no error, so on
+    2026-11-02 the heartbeat read "ok" while every private-group annotation
+    went unseen, and a public one arriving would have moved the cursor past
+    them for good.
+    """
+
+    CURSOR = "2026-10-16T23:59:03.907143+00:00"
+
+    def _poll(self, monkeypatch, owner, rows=()):
+        poll.CURSOR_FILE.write_text(json.dumps({"search_after": self.CURSOR}))
+        monkeypatch.setattr(poll, "token_owner", lambda: owner)
+        searched = []
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: searched.append(cursor) or list(rows))
+        monkeypatch.setattr(
+            poll,
+            "process",
+            lambda ann, dry_run=False: {"id": ann["id"], "classified_by": poll.MODEL},
+        )
+        poll.main()
+        return searched
+
+    def _health(self):
+        return json.loads(poll.HEALTH_FILE.read_text())
+
+    def test_holds_the_cursor_without_searching(self, monkeypatch):
+        searched = self._poll(monkeypatch, owner=None)
+        assert searched == []  # anonymous rows could only move the cursor wrongly
+        assert json.loads(poll.CURSOR_FILE.read_text())["search_after"] == self.CURSOR
+        health = self._health()
+        assert health["status"] == "token"
+        assert "hypothes.is/account/developer" in health["detail"]
+
+    def test_a_standing_lapse_is_logged_once(self, monkeypatch):
+        self._poll(monkeypatch, owner=None)
+        self._poll(monkeypatch, owner=None)
+        assert poll.LOG_FILE.read_text().count("does not recognize the token") == 1
+
+    def test_a_new_token_resumes_from_the_held_cursor(self, monkeypatch):
+        self._poll(monkeypatch, owner=None)
+        searched = self._poll(
+            monkeypatch,
+            owner=poll.CONFIG.get("user"),
+            rows=_rows("2026-10-20T00:00:00+00:00"),
+        )
+        assert searched == [self.CURSOR]
+        assert not poll.TOKENFAIL_FILE.exists()
+        assert "recognizes the token again" in poll.LOG_FILE.read_text()
+        assert self._health()["status"] == "ok"
+        assert self._health()["processed"] == 1
+
+    def test_a_dry_run_reports_the_hold_without_marking_it(self, monkeypatch):
+        monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
+        self._poll(monkeypatch, owner=None)
+        assert "does not recognize the token" in poll.LOG_FILE.read_text()
+        assert not poll.TOKENFAIL_FILE.exists()
+        assert not poll.HEALTH_FILE.exists()
+
+    def test_a_token_of_another_account_still_polls(self, monkeypatch):
+        # it sees what that account may read in shared groups; doctor.py warns
+        searched = self._poll(monkeypatch, owner="acct:someone-else@hypothes.is")
+        assert searched == [self.CURSOR]
+        assert self._health()["status"] == "ok"
+
+    def test_an_unreachable_profile_is_a_network_fault(self, monkeypatch):
+        def down():
+            raise OSError("dns went away")
+
+        monkeypatch.setattr(poll, "token_owner", down)
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: pytest.fail("must not search"))
+        poll.main()
+        assert self._health()["status"] == "api-unreachable"
+        assert not poll.TOKENFAIL_FILE.exists()
+
+
 @pytest.mark.usefixtures("routing")
 class TestMissingCli:
     """A claude binary that is gone holds the queue like a dead login, rather

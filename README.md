@@ -246,6 +246,19 @@ follows when the API answers again. Requests the API rejects (a `4xx`, such as
 `400` for an unreadable `since`) are not retried: the log line says a retry will
 not fix them and points at `config.json` instead.
 
+A token the API no longer recognizes, because it was revoked or regenerated, is
+the one fault `/api/search` never reports. It answers such a token as an
+anonymous user, with public annotations only and no error, so private-group
+annotations simply stop arriving. Each poll first asks `/api/profile` whose
+token it holds, and when the answer is nobody, it does not search. It logs
+`the hypothesis api does not recognize the token…` once, the heartbeat reads
+`status: token`, and the cursor stays put, since filing a public annotation
+would move it past every private one before it. The backfill
+(`fetch_annotations.py`) exits for the same reason and leaves
+`data/annotations.jsonl` as it was. Make a new token at
+hypothes.is/account/developer and put it in `config.json`. The next poll logs
+`recognizes the token again` and picks up from the cursor.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

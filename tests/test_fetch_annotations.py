@@ -101,6 +101,16 @@ class TestBackfill:
         with pytest.raises(SystemExit, match="search_after must be a parsable date"):
             fetch_annotations.main()
 
+    def test_an_unrecognized_token_leaves_the_previous_file_untouched(self, monkeypatch):
+        # the api would answer anonymously, and the pull would replace the
+        # whole history with its public rows
+        fetch_annotations.OUT.write_text('{"id": "old"}\n')
+        monkeypatch.setattr(poll, "token_owner", lambda: None)
+        monkeypatch.setattr(poll, "search", lambda *a, **k: pytest.fail("searched anonymously"))
+        with pytest.raises(SystemExit, match="does not recognize the token"):
+            fetch_annotations.main()
+        assert _written() == ["old"]
+
     def test_a_placeholder_token_exits_before_any_call(self, monkeypatch):
         monkeypatch.setattr(
             poll, "CONFIG", {**poll.CONFIG, "api_token": "YOUR-HYPOTHESIS-DEVELOPER-TOKEN"}

@@ -34,6 +34,12 @@ def main():
         sys.exit("no user in config.json — set it to acct:<you>@hypothes.is")
     since = poll.CONFIG.get("since") or EPOCH
     try:
+        # An anonymous pull would replace the whole history with its public rows.
+        if poll.token_owner() is None:
+            sys.exit(
+                f"the hypothesis api does not recognize the token in config.json — "
+                f"{poll.TOKEN_REMEDY}; {OUT.name} left as it was"
+            )
         rows = poll.fetch_new(since, key="created")
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
         sys.exit(f"hypothesis api returned {poll.api_reason(e)}; {OUT.name} left as it was")

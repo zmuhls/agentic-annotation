@@ -21,15 +21,13 @@ import sys
 import time
 import traceback
 import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
-from bootstrap_ia import first_child, nodes_of  # noqa: E402
+from bootstrap_ia import first_child, get, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
     group_name_for,
@@ -41,7 +39,6 @@ from build_ia import (  # noqa: E402
 )
 
 CONFIG = load_config()
-API = "https://api.hypothes.is/api"
 MODEL = CONFIG.get("model", "claude-sonnet-5")
 # `"model": "rules"` runs the watcher without the claude CLI: every annotation
 # keeps record_for's rule placement, at no cost. Otherwise a missing CLI holds
@@ -74,6 +71,7 @@ STDOUT_LOG = ROOT / "logs" / "launchd.log"
 LOCK_FILE = ROOT / "data" / ".poll.lock"
 NETFAIL_FILE = ROOT / "data" / ".netfail"
 AUTHFAIL_FILE = ROOT / "data" / ".authfail"
+TOKENFAIL_FILE = ROOT / "data" / ".tokenfail"
 HEALTH_FILE = ROOT / "data" / "health.json"
 
 # Nothing ever pruned the logs: 288 runs a day append forever, and one bad week
@@ -85,6 +83,7 @@ LOG_KEEP_BYTES = 250_000
 # HTTP statuses worth a retry; anything else (401 bad token, 400 bad query) is
 # a real fault the caller should see immediately.
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+TOKEN_REMEDY = "make a new token at hypothes.is/account/developer"
 
 
 def log(msg):
@@ -122,20 +121,17 @@ def trim_log(path, max_bytes=LOG_MAX_BYTES, keep_bytes=LOG_KEEP_BYTES):
     return True
 
 
-def search(params, attempts=3, backoff=5):
-    """GET /api/search, riding out transient network faults.
+def api_get(path, params=None, attempts=3, backoff=5):
+    """GET /api/<path> as the token's owner, riding out transient network faults.
 
     A laptop that sleeps, drops wifi, or hits an api hiccup produced the bulk of
     this watcher's failures (DNS, connection reset, ssl eof, read timeout — all
     OSError subclasses, as is urllib's URLError). Retry those a couple of times
     within one launchd interval; let genuine faults (401, 400) raise at once.
     """
-    url = f"{API}/search?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {CONFIG['api_token']}"})
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode())
+            return get(path, CONFIG.get("api_token") or "", **(params or {}))
         except urllib.error.HTTPError as e:
             if e.code not in RETRY_STATUSES or attempt == attempts - 1:
                 raise
@@ -143,6 +139,22 @@ def search(params, attempts=3, backoff=5):
             if attempt == attempts - 1:
                 raise
         time.sleep(backoff * (2**attempt))
+
+
+def search(params, attempts=3, backoff=5):
+    """GET /api/search."""
+    return api_get("search", params, attempts, backoff)
+
+
+def token_owner():
+    """The account the api takes the token for, or None for a token it does not know.
+
+    /api/search never says: it answers a revoked token 200 as an anonymous
+    user, with public rows only (probed live). /api/profile does — `userid` is
+    null for anonymous. Asked on every poll, since a check that is cached is
+    blind for as long as the cache lasts, and one free GET per run is nothing.
+    """
+    return api_get("profile").get("userid")
 
 
 def api_reason(err):
@@ -573,6 +585,12 @@ def clear_auth_failure():
         log("claude cli answering again; classifying the annotations held for it")
 
 
+def clear_token_failure():
+    if TOKENFAIL_FILE.exists():
+        TOKENFAIL_FILE.unlink()
+        log("hypothesis api recognizes the token again; polling resumes from the cursor")
+
+
 def classify(ann, record, dry_run=False):
     """Refine the rules' `record` with the model's placement; return its actions.
 
@@ -697,7 +715,8 @@ def poll_once(dry_run):
     seen = json.loads(SEEN_FILE.read_text()) if SEEN_FILE.exists() else {}
 
     try:
-        anns = fetch_new(cursor)
+        recognized = token_owner() is not None
+        anns = fetch_new(cursor) if recognized else []
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
         reason = api_reason(e)
         if e.code in RETRY_STATUSES:
@@ -720,6 +739,22 @@ def poll_once(dry_run):
             record_health("api-unreachable", detail=str(e))
         return
     clear_network_failure()
+    if not recognized:
+        # The anonymous rows a search would bring back are public only, and
+        # filing one moves the cursor past every private annotation before it.
+        msg = (
+            "the hypothesis api does not recognize the token in config.json, so "
+            f"/api/search would see public annotations only — {TOKEN_REMEDY}; "
+            "polling holds at the cursor until then"
+        )
+        if dry_run:
+            log(msg)
+        else:
+            note_once(TOKENFAIL_FILE, msg)
+            record_health("token", detail=f"api token not recognized — {TOKEN_REMEDY}")
+        return
+    if not dry_run:
+        clear_token_failure()
 
     fresh = [a for a in anns if seen.get(a["id"]) != a["updated"]]
     if not fresh:
