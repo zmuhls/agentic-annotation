@@ -75,6 +75,7 @@ def main():
         taken = [p.name for p in (IA_FILE, ROUTING_FILE) if p.exists()]
         sys.exit(f"{' and '.join(taken)} already exist(s) — pass --force to overwrite")
 
+    bootstrap_ia.require_recognized(token)
     groups = bootstrap_ia.get("profile/groups", token)
     annotations = bootstrap_ia.recent_annotations(token, user)
     ia_text, routing = drafts(IA_FILE.read_text(), user, groups, annotations)

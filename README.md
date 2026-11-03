@@ -255,9 +255,10 @@ token it holds, and when the answer is nobody, it does not search. It logs
 `status: token`, and the cursor stays put, since filing a public annotation
 would move it past every private one before it. The backfill
 (`fetch_annotations.py`) exits for the same reason and leaves
-`data/annotations.jsonl` as it was. Make a new token at
-hypothes.is/account/developer and put it in `config.json`. The next poll logs
-`recognizes the token again` and picks up from the cursor.
+`data/annotations.jsonl` as it was, and the bootstrap scripts exit without
+drafting, since a draft from the anonymous answer has no group nodes. Make a
+new token at hypothes.is/account/developer and put it in `config.json`. The
+next poll logs `recognizes the token again` and picks up from the cursor.
 
 ## License
 

@@ -80,6 +80,7 @@ def skeleton(groups, counts, known):
 def main():
     config = load_config()
     token = bootstrap_ia.require_token(config)
+    bootstrap_ia.require_recognized(token)
 
     groups = bootstrap_ia.get("profile/groups", token)
     # Without a user there is no sample to rank domains by; groups still route.

@@ -168,3 +168,57 @@ class TestExampleNode:
 
     def test_first_child_is_none_when_nothing_has_children(self):
         assert bootstrap_ia.first_child("### a — b\n\nno list here\n") is None
+
+
+class TestMain:
+    """main() asks /api/profile whose token this is before it drafts anything.
+
+    /api/profile/groups and /api/search answer a token they do not recognize as
+    anonymous — the public group alone, public rows only — so the draft would
+    hold no group nodes and still look finished.
+    """
+
+    @pytest.fixture
+    def env(self, tmp_path, monkeypatch):
+        calls, owner = [], {"userid": "acct:new@hypothes.is"}
+
+        def fake_get(path, token, **params):
+            calls.append(path)
+            if path == "profile":
+                return owner
+            if path == "profile/groups":
+                return GROUPS
+            if path == "search":
+                return {"rows": ANNOTATIONS}
+            raise AssertionError(f"unexpected API call: {path}")
+
+        ia = tmp_path / "ia.md"
+        ia.write_text(TEMPLATE)
+        monkeypatch.setattr(bootstrap_ia, "get", fake_get)
+        monkeypatch.setattr(bootstrap_ia, "OUT", ia)
+        monkeypatch.setattr(
+            bootstrap_ia,
+            "load_config",
+            lambda: {"api_token": "test-token", "user": "acct:new@hypothes.is"},
+        )
+        monkeypatch.setattr(sys, "argv", ["bootstrap_ia.py", "--write", "--force"])
+        return {"calls": calls, "owner": owner, "ia": ia}
+
+    def test_a_recognized_token_drafts_from_the_groups(self, env):
+        bootstrap_ia.main()
+        assert env["calls"] == ["profile", "profile/groups", "search"]
+        assert "### diss-reading — Diss Reading" in env["ia"].read_text()
+
+    def test_an_unrecognized_token_exits_before_drafting(self, env):
+        env["owner"]["userid"] = None
+        with pytest.raises(SystemExit) as exit_:
+            bootstrap_ia.main()
+        assert "does not recognize the token" in str(exit_.value)
+        assert env["calls"] == ["profile"]
+        assert env["ia"].read_text() == TEMPLATE
+
+    def test_a_placeholder_token_exits_before_any_call(self, env, monkeypatch):
+        monkeypatch.setattr(bootstrap_ia, "load_config", lambda: {"api_token": "YOUR-TOKEN"})
+        with pytest.raises(SystemExit):
+            bootstrap_ia.main()
+        assert env["calls"] == []

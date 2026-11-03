@@ -69,10 +69,12 @@ class TestSummary:
 class TestMain:
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
-        calls = []
+        calls, owner = [], {"userid": USER}
 
         def fake_get(path, token, **params):
             calls.append(path)
+            if path == "profile":
+                return owner
             if path == "profile/groups":
                 return GROUPS
             if path == "search":
@@ -88,7 +90,7 @@ class TestMain:
             bootstrap, "load_config", lambda: {"api_token": "test-token", "user": USER}
         )
         monkeypatch.setattr(sys, "argv", ["bootstrap.py", "--write", "--force"])
-        return {"calls": calls, "ia": ia, "routing": tmp_path / "routing.json"}
+        return {"calls": calls, "owner": owner, "ia": ia, "routing": tmp_path / "routing.json"}
 
     def test_writes_an_agreeing_pair_from_one_api_pass(self, env):
         bootstrap.main()
@@ -97,7 +99,16 @@ class TestMain:
         assert USER in ia_text
         assert routing["group_nodes"]["DISS01"] == "diss-reading/general"
         assert "diss-reading/general" in bootstrap_ia.node_ids(ia_text)
-        assert env["calls"] == ["profile/groups", "search"]
+        assert env["calls"] == ["profile", "profile/groups", "search"]
+
+    def test_an_unrecognized_token_writes_neither_file(self, env):
+        env["owner"]["userid"] = None
+        with pytest.raises(SystemExit) as exit_:
+            bootstrap.main()
+        assert "does not recognize the token" in str(exit_.value)
+        assert env["calls"] == ["profile"]
+        assert env["ia"].read_text() == TEMPLATE
+        assert not env["routing"].exists()
 
     def test_force_replaces_an_existing_routing(self, env):
         env["routing"].write_text("{}\n")

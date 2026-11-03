@@ -43,6 +43,7 @@ SAMPLE_LIMIT = 200
 # A domain earns its own child node once it is more than a stray one-off.
 DOMAIN_MIN_HITS = 2
 DOMAIN_CHILDREN = 3
+TOKEN_REMEDY = "make a new token at hypothes.is/account/developer"
 
 
 def require_token(config):
@@ -51,6 +52,21 @@ def require_token(config):
     if not token or token.startswith("YOUR-"):
         sys.exit("no api_token in config.json — copy config.example.json first")
     return token
+
+
+def require_recognized(token):
+    """Exit unless the API knows whose `token` this is.
+
+    /api/profile/groups and /api/search never say: a token the API does not
+    recognize gets the anonymous answer — the public group alone, public rows
+    only — so a draft built from them has no group nodes and still looks
+    finished. /api/profile does: `userid` is null for anonymous.
+    """
+    if get("profile", token).get("userid") is None:
+        sys.exit(
+            f"the hypothesis api does not recognize the token in config.json — "
+            f"{TOKEN_REMEDY}; nothing drafted"
+        )
 
 
 def get(path, token, **params):
@@ -226,6 +242,7 @@ def main():
         sys.exit(f"{OUT} is missing — it is the template this script rewrites")
     template_text = OUT.read_text()
 
+    require_recognized(token)
     groups = get("profile/groups", token)
     annotations = recent_annotations(token, user)
     text = draft(template_text, user, groups, domains_by_group(annotations))

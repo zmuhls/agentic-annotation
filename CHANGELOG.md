@@ -132,6 +132,14 @@ on `main`.
 
 ### Fixed
 
+- `bootstrap.py`, `bootstrap_ia.py` and `bootstrap_routing.py` ask
+  `/api/profile` whose token they hold before they draft, and exit with
+  nothing written when the API does not recognize it. `/api/profile/groups`
+  and `/api/search` answer such a token as anonymous, with the public group
+  alone and public rows only, so the draft had no group nodes, still looked
+  finished, and with `--write --force` replaced a working `ia.md` and
+  `routing.json`. The remedy text now lives once, in `bootstrap_ia.TOKEN_REMEDY`.
+
 - A `claude` binary that will not start (moved by an update, uninstalled, not
   executable) holds the queue like a dead login (`poll.ClaudeMissingError`),
   instead of logging a `FileNotFoundError` and filing every annotation under

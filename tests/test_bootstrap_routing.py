@@ -138,10 +138,12 @@ class TestDraftRoutesThroughNodeFor:
 class TestMain:
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
-        calls = []
+        calls, owner = [], {"userid": "acct:new@hypothes.is"}
 
         def fake_get(path, token, **params):
             calls.append(path)
+            if path == "profile":
+                return owner
             if path == "profile/groups":
                 return GROUPS
             if path == "search":
@@ -159,13 +161,13 @@ class TestMain:
             lambda: {"api_token": "test-token", "user": "acct:new@hypothes.is"},
         )
         monkeypatch.setattr(sys, "argv", ["bootstrap_routing.py", "--write"])
-        return {"calls": calls, "out": tmp_path / "routing.json", "ia": ia}
+        return {"calls": calls, "owner": owner, "out": tmp_path / "routing.json", "ia": ia}
 
     def test_writes_a_routing_that_agrees_with_the_ia_on_disk(self, env):
         bootstrap_routing.main()
         written = json.loads(env["out"].read_text())
         assert written["group_nodes"]["DISS01"] == "diss-reading/general"
-        assert env["calls"] == ["profile/groups", "search"]
+        assert env["calls"] == ["profile", "profile/groups", "search"]
 
     def test_a_missing_ia_routes_everything_to_inbox(self, env):
         env["ia"].unlink()
@@ -176,7 +178,7 @@ class TestMain:
     def test_without_a_user_the_sample_is_skipped(self, env, monkeypatch):
         monkeypatch.setattr(bootstrap_routing, "load_config", lambda: {"api_token": "test-token"})
         bootstrap_routing.main()
-        assert env["calls"] == ["profile/groups"]
+        assert env["calls"] == ["profile", "profile/groups"]
         assert json.loads(env["out"].read_text())["group_domain_overrides"] == []
 
     def test_refuses_to_clobber_without_force(self, env):
@@ -196,3 +198,11 @@ class TestMain:
         with pytest.raises(SystemExit):
             bootstrap_routing.main()
         assert env["calls"] == []
+
+    def test_an_unrecognized_token_exits_before_drafting(self, env):
+        env["owner"]["userid"] = None
+        with pytest.raises(SystemExit) as exit_:
+            bootstrap_routing.main()
+        assert "does not recognize the token" in str(exit_.value)
+        assert env["calls"] == ["profile"]
+        assert not env["out"].exists()

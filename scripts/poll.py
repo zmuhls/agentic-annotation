@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
-from bootstrap_ia import first_child, get, nodes_of  # noqa: E402
+from bootstrap_ia import TOKEN_REMEDY, first_child, get, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
     group_name_for,
@@ -83,7 +83,6 @@ LOG_KEEP_BYTES = 250_000
 # HTTP statuses worth a retry; anything else (401 bad token, 400 bad query) is
 # a real fault the caller should see immediately.
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
-TOKEN_REMEDY = "make a new token at hypothes.is/account/developer"
 
 
 def log(msg):
