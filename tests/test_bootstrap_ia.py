@@ -5,6 +5,7 @@ never read the maintainer's real groups.
 """
 
 import sys
+import urllib.error
 from collections import Counter
 from pathlib import Path
 
@@ -180,10 +181,12 @@ class TestMain:
 
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
-        calls, owner = [], {"userid": "acct:new@hypothes.is"}
+        calls, owner, fail = [], {"userid": "acct:new@hypothes.is"}, {}
 
         def fake_get(path, token, **params):
             calls.append(path)
+            if path in fail:
+                raise fail[path]
             if path == "profile":
                 return owner
             if path == "profile/groups":
@@ -202,7 +205,7 @@ class TestMain:
             lambda: {"api_token": "test-token", "user": "acct:new@hypothes.is"},
         )
         monkeypatch.setattr(sys, "argv", ["bootstrap_ia.py", "--write", "--force"])
-        return {"calls": calls, "owner": owner, "ia": ia}
+        return {"calls": calls, "owner": owner, "fail": fail, "ia": ia}
 
     def test_a_recognized_token_drafts_from_the_groups(self, env):
         bootstrap_ia.main()
@@ -222,3 +225,18 @@ class TestMain:
         with pytest.raises(SystemExit):
             bootstrap_ia.main()
         assert env["calls"] == []
+
+    @pytest.mark.parametrize("path", ["profile", "profile/groups", "search"])
+    def test_an_unreachable_api_exits_in_one_line(self, env, path):
+        env["fail"][path] = urllib.error.URLError("nodename nor servname provided")
+        with pytest.raises(SystemExit) as exit_:
+            bootstrap_ia.main()
+        assert str(exit_.value).startswith("hypothesis api unreachable")
+        assert str(exit_.value).endswith("nothing drafted")
+        assert env["ia"].read_text() == TEMPLATE
+
+    def test_an_api_error_names_the_status(self, env):
+        env["fail"]["profile/groups"] = urllib.error.HTTPError("u", 503, "Unavailable", {}, None)
+        with pytest.raises(SystemExit, match="hypothesis api returned 503 Unavailable"):
+            bootstrap_ia.main()
+        assert env["ia"].read_text() == TEMPLATE

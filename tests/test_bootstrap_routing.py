@@ -8,6 +8,7 @@ bootstrappers are checked against each other, not just each on its own terms.
 
 import json
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -138,10 +139,12 @@ class TestDraftRoutesThroughNodeFor:
 class TestMain:
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
-        calls, owner = [], {"userid": "acct:new@hypothes.is"}
+        calls, owner, fail = [], {"userid": "acct:new@hypothes.is"}, {}
 
         def fake_get(path, token, **params):
             calls.append(path)
+            if path in fail:
+                raise fail[path]
             if path == "profile":
                 return owner
             if path == "profile/groups":
@@ -161,7 +164,13 @@ class TestMain:
             lambda: {"api_token": "test-token", "user": "acct:new@hypothes.is"},
         )
         monkeypatch.setattr(sys, "argv", ["bootstrap_routing.py", "--write"])
-        return {"calls": calls, "owner": owner, "out": tmp_path / "routing.json", "ia": ia}
+        return {
+            "calls": calls,
+            "owner": owner,
+            "fail": fail,
+            "out": tmp_path / "routing.json",
+            "ia": ia,
+        }
 
     def test_writes_a_routing_that_agrees_with_the_ia_on_disk(self, env):
         bootstrap_routing.main()
@@ -205,4 +214,10 @@ class TestMain:
             bootstrap_routing.main()
         assert "does not recognize the token" in str(exit_.value)
         assert env["calls"] == ["profile"]
+        assert not env["out"].exists()
+
+    def test_an_unreachable_api_exits_in_one_line(self, env):
+        env["fail"]["search"] = urllib.error.URLError("nodename nor servname provided")
+        with pytest.raises(SystemExit, match="hypothesis api unreachable"):
+            bootstrap_routing.main()
         assert not env["out"].exists()

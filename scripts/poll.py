@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
-from bootstrap_ia import TOKEN_REMEDY, first_child, get, nodes_of  # noqa: E402
+from bootstrap_ia import TOKEN_REMEDY, api_reason, first_child, get, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
     group_name_for,
@@ -154,23 +154,6 @@ def token_owner():
     blind for as long as the cache lasts, and one free GET per run is nothing.
     """
     return api_get("profile").get("userid")
-
-
-def api_reason(err):
-    """`err`'s status, plus the reason /api/search put in the error body.
-
-    A bare "400 Bad Request" says nothing about which value the api refused,
-    but the body names it — an unreadable `since`, for one, comes back as
-    "search_after must be a parsable date..." (probed live). Bodies that are
-    missing or not JSON leave just the status.
-    """
-    status = f"{err.code} {err.reason}"
-    try:
-        reason = json.loads(err.read().decode()).get("reason") or ""
-        reason = " ".join(reason.lstrip(": ").split())
-    except Exception:  # an HTTPError with no body raises KeyError from read() on 3.9
-        return status
-    return f"{status}: {reason}" if reason else status
 
 
 def ms_before(stamp):

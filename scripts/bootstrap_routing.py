@@ -80,12 +80,12 @@ def skeleton(groups, counts, known):
 def main():
     config = load_config()
     token = bootstrap_ia.require_token(config)
-    bootstrap_ia.require_recognized(token)
-
-    groups = bootstrap_ia.get("profile/groups", token)
     # Without a user there is no sample to rank domains by; groups still route.
     user = config.get("user", "")
-    annotations = bootstrap_ia.recent_annotations(token, user) if user else []
+    with bootstrap_ia.api_or_exit("nothing drafted"):
+        bootstrap_ia.require_recognized(token)
+        groups = bootstrap_ia.get("profile/groups", token)
+        annotations = bootstrap_ia.recent_annotations(token, user) if user else []
     known = bootstrap_ia.node_ids(IA_FILE.read_text()) if IA_FILE.exists() else set()
     routing = skeleton(groups, bootstrap_ia.domains_by_group(annotations), known)
     text = json.dumps(routing, indent=2) + "\n"

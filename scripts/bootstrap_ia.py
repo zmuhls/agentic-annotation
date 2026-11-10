@@ -23,9 +23,11 @@ Refuses to clobber an existing ia.md unless --force is passed.
 import json
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,6 +78,40 @@ def get(path, token, **params):
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
+
+
+def api_reason(err):
+    """`err`'s status, plus the reason the api put in the error body.
+
+    A bare "400 Bad Request" says nothing about which value the api refused,
+    but the body names it — an unreadable `since`, for one, comes back as
+    "search_after must be a parsable date..." (probed live). Bodies that are
+    missing or not JSON leave just the status.
+    """
+    status = f"{err.code} {err.reason}"
+    try:
+        reason = json.loads(err.read().decode()).get("reason") or ""
+        reason = " ".join(reason.lstrip(": ").split())
+    except Exception:  # an HTTPError with no body raises KeyError from read() on 3.9
+        return status
+    return f"{status}: {reason}" if reason else status
+
+
+@contextmanager
+def api_or_exit(untouched):
+    """Turn a failed API call into one line that says what was left alone.
+
+    A dropped DNS lookup or a 5xx otherwise ends the script in a urllib
+    traceback that never says whether ia.md, routing.json, or annotations.jsonl
+    was touched. Callers fetch everything before they write anything, so
+    `untouched` can always say what was left as it was.
+    """
+    try:
+        yield
+    except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
+        sys.exit(f"hypothesis api returned {api_reason(e)}; {untouched}")
+    except OSError as e:
+        sys.exit(f"hypothesis api unreachable ({e}); {untouched}")
 
 
 def recent_annotations(token, user):
@@ -242,9 +278,10 @@ def main():
         sys.exit(f"{OUT} is missing — it is the template this script rewrites")
     template_text = OUT.read_text()
 
-    require_recognized(token)
-    groups = get("profile/groups", token)
-    annotations = recent_annotations(token, user)
+    with api_or_exit("nothing drafted"):
+        require_recognized(token)
+        groups = get("profile/groups", token)
+        annotations = recent_annotations(token, user)
     text = draft(template_text, user, groups, domains_by_group(annotations))
 
     if "--write" not in sys.argv:

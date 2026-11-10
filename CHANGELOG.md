@@ -132,6 +132,15 @@ on `main`.
 
 ### Fixed
 
+- `bootstrap.py`, `bootstrap_ia.py` and `bootstrap_routing.py` exit with one
+  line when the API cannot be reached or answers with an error, as the
+  backfill already did: `hypothesis api unreachable (…); nothing drafted`, or
+  `hypothesis api returned 503 …`. Before, a dropped connection ended them in
+  a urllib traceback that did not say whether `ia.md` or `routing.json` had
+  been touched. Neither had been, because every fetch runs before any write.
+  All four scripts share one handler, `bootstrap_ia.api_or_exit`, and
+  `api_reason` moved beside it from `poll.py`, which still imports it.
+
 - `bootstrap.py`, `bootstrap_ia.py` and `bootstrap_routing.py` ask
   `/api/profile` whose token they hold before they draft, and exit with
   nothing written when the API does not recognize it. `/api/profile/groups`

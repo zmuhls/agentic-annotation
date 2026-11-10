@@ -8,6 +8,7 @@ command produces the same pair the two scripts produce run in order.
 
 import json
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -69,10 +70,12 @@ class TestSummary:
 class TestMain:
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
-        calls, owner = [], {"userid": USER}
+        calls, owner, fail = [], {"userid": USER}, {}
 
         def fake_get(path, token, **params):
             calls.append(path)
+            if path in fail:
+                raise fail[path]
             if path == "profile":
                 return owner
             if path == "profile/groups":
@@ -90,7 +93,13 @@ class TestMain:
             bootstrap, "load_config", lambda: {"api_token": "test-token", "user": USER}
         )
         monkeypatch.setattr(sys, "argv", ["bootstrap.py", "--write", "--force"])
-        return {"calls": calls, "owner": owner, "ia": ia, "routing": tmp_path / "routing.json"}
+        return {
+            "calls": calls,
+            "owner": owner,
+            "fail": fail,
+            "ia": ia,
+            "routing": tmp_path / "routing.json",
+        }
 
     def test_writes_an_agreeing_pair_from_one_api_pass(self, env):
         bootstrap.main()
@@ -107,6 +116,14 @@ class TestMain:
             bootstrap.main()
         assert "does not recognize the token" in str(exit_.value)
         assert env["calls"] == ["profile"]
+        assert env["ia"].read_text() == TEMPLATE
+        assert not env["routing"].exists()
+
+    def test_an_unreachable_api_writes_neither_file(self, env):
+        # The last call fails after the groups arrived: still nothing half-written.
+        env["fail"]["search"] = urllib.error.URLError("connection reset by peer")
+        with pytest.raises(SystemExit, match="hypothesis api unreachable"):
+            bootstrap.main()
         assert env["ia"].read_text() == TEMPLATE
         assert not env["routing"].exists()
 

@@ -15,12 +15,11 @@ connection ended the whole pull. With no `since` it pulls the entire history.
 import json
 import os
 import sys
-import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import poll  # noqa: E402
-from bootstrap_ia import require_token  # noqa: E402
+from bootstrap_ia import api_or_exit, require_token  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "annotations.jsonl"
@@ -33,7 +32,7 @@ def main():
     if not poll.CONFIG.get("user"):
         sys.exit("no user in config.json — set it to acct:<you>@hypothes.is")
     since = poll.CONFIG.get("since") or EPOCH
-    try:
+    with api_or_exit(f"{OUT.name} left as it was"):
         # An anonymous pull would replace the whole history with its public rows.
         if poll.token_owner() is None:
             sys.exit(
@@ -41,10 +40,6 @@ def main():
                 f"{poll.TOKEN_REMEDY}; {OUT.name} left as it was"
             )
         rows = poll.fetch_new(since, key="created")
-    except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
-        sys.exit(f"hypothesis api returned {poll.api_reason(e)}; {OUT.name} left as it was")
-    except OSError as e:
-        sys.exit(f"hypothesis api unreachable ({e}); {OUT.name} left as it was")
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_name(OUT.name + ".tmp")
