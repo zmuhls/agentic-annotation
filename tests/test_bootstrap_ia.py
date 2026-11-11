@@ -4,6 +4,7 @@ The Hypothesis API is always mocked: these tests never reach the network and
 never read the maintainer's real groups.
 """
 
+import http.client
 import sys
 import urllib.error
 from collections import Counter
@@ -235,8 +236,66 @@ class TestMain:
         assert str(exit_.value).endswith("nothing drafted")
         assert env["ia"].read_text() == TEMPLATE
 
+    def test_a_reply_that_is_not_json_exits_in_one_line(self, env):
+        env["fail"]["profile/groups"] = bootstrap_ia.ApiReplyError(
+            "/api/profile/groups", "not JSON"
+        )
+        with pytest.raises(SystemExit) as exit_:
+            bootstrap_ia.main()
+        assert str(exit_.value).startswith("hypothesis api unreachable")
+        assert "/api/profile/groups" in str(exit_.value)
+        assert env["ia"].read_text() == TEMPLATE
+
     def test_an_api_error_names_the_status(self, env):
         env["fail"]["profile/groups"] = urllib.error.HTTPError("u", 503, "Unavailable", {}, None)
         with pytest.raises(SystemExit, match="hypothesis api returned 503 Unavailable"):
             bootstrap_ia.main()
         assert env["ia"].read_text() == TEMPLATE
+
+
+class TestGet:
+    """get() is the one place every script reads an api reply."""
+
+    class _Resp:
+        def __init__(self, body):
+            self._body = body
+
+        def read(self):
+            if isinstance(self._body, Exception):
+                raise self._body
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _serve(self, monkeypatch, body):
+        resp = self._Resp(body)
+        monkeypatch.setattr(bootstrap_ia.urllib.request, "urlopen", lambda req, timeout=None: resp)
+
+    def test_parses_a_json_reply(self, monkeypatch):
+        self._serve(monkeypatch, b'{"userid": "acct:a@hypothes.is"}')
+        assert bootstrap_ia.get("profile", "t") == {"userid": "acct:a@hypothes.is"}
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            b"<html><body>Sign in to the wifi</body></html>",  # a captive portal's 200
+            b"",
+            b"\xff\xfe not utf-8",
+        ],
+    )
+    def test_a_reply_that_is_not_json_names_the_endpoint(self, monkeypatch, body):
+        self._serve(monkeypatch, body)
+        with pytest.raises(bootstrap_ia.ApiReplyError, match="/api/search.*not JSON"):
+            bootstrap_ia.get("search", "t", limit=1)
+
+    def test_a_cut_off_reply_names_the_endpoint(self, monkeypatch):
+        self._serve(monkeypatch, http.client.IncompleteRead(b'{"ro', 100))
+        with pytest.raises(bootstrap_ia.ApiReplyError, match="/api/profile.*cut off"):
+            bootstrap_ia.get("profile", "t")
+
+    def test_the_error_is_an_oserror_so_network_handlers_catch_it(self):
+        assert issubclass(bootstrap_ia.ApiReplyError, OSError)

@@ -4,6 +4,7 @@ The `claude` subprocess is always mocked — these tests never shell out to the
 CLI and never spend real API money.
 """
 
+import http.client
 import io
 import json
 import sys
@@ -339,6 +340,40 @@ class TestSearchRetries:
             poll.search({})
         assert len(calls) == 1  # no retry on a real fault
 
+    class _RawResp(_Resp):
+        """A reply whose body is `body` bytes, or whose read() raises `body`."""
+
+        def __init__(self, body):
+            self._body = body
+
+        def read(self):
+            if isinstance(self._body, Exception):
+                raise self._body
+            return self._body
+
+    # A wifi sign-in page or a proxy can answer 200 with HTML, and a dropped
+    # link can cut a body short. Neither is an OSError, so both skipped every
+    # network handler and ended the poll in a traceback with health "error".
+    BAD_REPLIES = {
+        "html": b"<html><body>Sign in to the wifi</body></html>",
+        "empty": b"",
+        "cut-off": http.client.IncompleteRead(b'{"rows": [', 400),
+    }
+
+    @pytest.mark.parametrize("kind", BAD_REPLIES)
+    def test_retries_a_reply_that_is_not_json(self, monkeypatch, kind):
+        bad = self._RawResp(self.BAD_REPLIES[kind])
+        calls = self._urlopen(monkeypatch, [bad, self._Resp({"rows": []})])
+        assert poll.search({})["rows"] == []
+        assert len(calls) == 2
+
+    @pytest.mark.parametrize("kind", BAD_REPLIES)
+    def test_a_reply_that_stays_bad_is_a_network_fault(self, monkeypatch, kind):
+        bad = self._RawResp(self.BAD_REPLIES[kind])
+        self._urlopen(monkeypatch, [bad, bad, bad])
+        with pytest.raises(OSError, match="/api/search"):
+            poll.search({})
+
 
 # The body /api/search sent back for search_after=garbage (probed live), line
 # breaks and leading ": " included.
@@ -457,6 +492,16 @@ class TestHeartbeat:
         health = self._health()
         assert health["status"] == "api-unreachable"
         assert "dns went away" in health["detail"]
+
+    def test_a_reply_that_is_not_json_is_unreachable_not_an_error(self, monkeypatch):
+        page = TestSearchRetries._RawResp(b"<html>Sign in to the wifi</html>")
+        monkeypatch.setattr(poll.urllib.request, "urlopen", lambda req, timeout=None: page)
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
+        poll.main()  # no SystemExit: a retry next run is the fix, as for DNS
+        health = self._health()
+        assert health["status"] == "api-unreachable"
+        assert "not JSON" in health["detail"]
+        assert "Traceback" not in poll.LOG_FILE.read_text()
 
     def test_records_an_api_error_status(self, monkeypatch):
         def boom(cursor):

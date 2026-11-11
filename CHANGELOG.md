@@ -132,6 +132,19 @@ on `main`.
 
 ### Fixed
 
+- An API reply that is not JSON or is cut off is now handled as a network
+  fault. Before, it crashed every script. A wifi sign-in page or a proxy can
+  answer 200 with HTML, and a dropped link can cut a body short. Neither
+  raises an `OSError`, so the poll ended in a traceback with the heartbeat
+  set to `error`, and the bootstrap scripts and the backfill ended in a
+  `JSONDecodeError` or `IncompleteRead` traceback. Now `bootstrap_ia.get`,
+  which every script reads replies through, raises `ApiReplyError`, an
+  `OSError` that names the endpoint. The poll retries it like a DNS drop,
+  logs it once (`hypothesis api unreachable (/api/search: reply was not
+  JSON; …); retrying next run`) and sets the heartbeat to `api-unreachable`.
+  The other scripts exit with the same line, plus what they left untouched
+  (`nothing drafted`, or `annotations.jsonl left as it was`).
+
 - `bootstrap.py`, `bootstrap_ia.py` and `bootstrap_routing.py` exit with one
   line when the API cannot be reached or answers with an error, as the
   backfill already did: `hypothesis api unreachable (…); nothing drafted`, or

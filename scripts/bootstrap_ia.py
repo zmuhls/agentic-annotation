@@ -20,6 +20,7 @@ the existing ia.md verbatim rather than restated here.
 Refuses to clobber an existing ia.md unless --force is passed.
 """
 
+import http.client
 import json
 import re
 import sys
@@ -71,13 +72,39 @@ def require_recognized(token):
         )
 
 
+class ApiReplyError(OSError):
+    """A reply that did not come back whole from the api: not JSON, or cut off.
+
+    A wifi sign-in page or a proxy can answer 200 with HTML, and a dropped link
+    can cut a body short (http.client.IncompleteRead). Neither is an OSError, so
+    both skipped every network handler. The poll ended in a traceback with an
+    "error" heartbeat, and the bootstrap scripts ended in a traceback too. As an
+    OSError it is retried and reported like the network drop it usually is.
+    """
+
+    def __init__(self, endpoint, problem):
+        super().__init__(f"{endpoint}: {problem}")
+
+
 def get(path, token, **params):
     url = f"{API}/{path}"
     if params:
         url += "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+    endpoint = f"/api/{path}"
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read()
+    except OSError:
+        raise  # HTTPError, URLError, and RemoteDisconnected (also an HTTPException)
+    except http.client.HTTPException as e:
+        raise ApiReplyError(endpoint, f"reply cut off or garbled ({type(e).__name__})") from e
+    try:
+        return json.loads(body.decode())
+    except ValueError:  # JSONDecodeError and UnicodeDecodeError both are
+        raise ApiReplyError(
+            endpoint, "reply was not JSON; a wifi sign-in page or a proxy may have answered"
+        ) from None
 
 
 def api_reason(err):
