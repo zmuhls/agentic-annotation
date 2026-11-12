@@ -82,7 +82,9 @@ drafted for it. Anything missing from `ia.md` starts at `inbox`. Add your own
 sites by hand. `routing.example.json` documents the whole schema, including the
 order the tables are consulted in. Skip the file entirely and everything lands
 in `inbox` — the rules are only a prior, and Sonnet still places each annotation
-against `ia.md`.
+against `ia.md`. [`docs/examples/bootstrap-preview.md`](docs/examples/bootstrap-preview.md)
+shows the preview and both drafts for a fictional account, and what to edit
+before the first poll.
 
 ## Driving the system from Hypothesis
 
