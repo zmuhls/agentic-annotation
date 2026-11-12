@@ -5,6 +5,7 @@ never read the maintainer's real groups.
 """
 
 import http.client
+import json
 import sys
 import urllib.error
 from collections import Counter
@@ -291,6 +292,45 @@ class TestGet:
         self._serve(monkeypatch, body)
         with pytest.raises(bootstrap_ia.ApiReplyError, match="/api/search.*not JSON"):
             bootstrap_ia.get("search", "t", limit=1)
+
+    # JSON that is not what the endpoint sends: a proxy's bare "OK", an error
+    # object, a list where an object belongs. It reached the first `.get` or
+    # loop and crashed, or passed: an object with no `userid` read as a dead
+    # token, and a search with no `rows` read as a quiet poll with nothing new.
+    @pytest.mark.parametrize(
+        "path, body",
+        [
+            ("profile", b'"OK"'),
+            ("profile", b"[]"),
+            ("profile", b'{"status": "ok"}'),
+            ("profile/groups", b'{"groups": []}'),
+            ("profile/groups", b'["__world__"]'),
+            ("search", b"[]"),
+            ("search", b'{"error": "upstream timed out"}'),
+            ("search", b'{"rows": null}'),
+            ("search", b'{"rows": ["a"]}'),
+        ],
+    )
+    def test_a_reply_of_the_wrong_shape_names_the_endpoint(self, monkeypatch, path, body):
+        self._serve(monkeypatch, body)
+        with pytest.raises(bootstrap_ia.ApiReplyError, match=f"^/api/{path}: .*not the "):
+            bootstrap_ia.get(path, "t")
+
+    # The shapes each endpoint answers with (probed live, anonymously).
+    @pytest.mark.parametrize(
+        "path, body",
+        [
+            ("profile", b'{"userid": null, "authority": "hypothes.is"}'),  # anonymous
+            ("profile", b'{"userid": "acct:a@hypothes.is", "groups": []}'),
+            ("profile/groups", b"[]"),
+            ("profile/groups", b'[{"id": "__world__", "name": "Public"}]'),
+            ("search", b'{"total": 0, "rows": []}'),
+            ("search", b'{"total": 1, "rows": [{"id": "a"}]}'),
+        ],
+    )
+    def test_the_shapes_the_api_sends_pass(self, monkeypatch, path, body):
+        self._serve(monkeypatch, body)
+        assert bootstrap_ia.get(path, "t") == json.loads(body)
 
     def test_a_cut_off_reply_names_the_endpoint(self, monkeypatch):
         self._serve(monkeypatch, http.client.IncompleteRead(b'{"ro', 100))

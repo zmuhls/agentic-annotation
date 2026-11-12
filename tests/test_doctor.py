@@ -266,6 +266,24 @@ class TestCheckToken:
         assert check.level == "warn"
         assert "dns" in check.detail
 
+    def test_a_profile_with_no_userid_warns_rather_than_blaming_the_token(self, monkeypatch):
+        # a proxy's JSON, not the api's: the anonymous profile carries "userid": null
+        class _Resp:
+            def read(self):
+                return b'{"status": "ok"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=None: _Resp())
+        check = doctor.check_token(self.CONFIG)
+        assert check.level == "warn"
+        assert "/api/profile" in check.detail
+        assert "6879-secret" not in check.detail
+
     def test_offline_skips_the_network_entirely(self):
         calls = []
         checks = doctor.run_checks(

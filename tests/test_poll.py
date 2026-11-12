@@ -351,17 +351,21 @@ class TestSearchRetries:
                 raise self._body
             return self._body
 
-    # A wifi sign-in page or a proxy can answer 200 with HTML, and a dropped
-    # link can cut a body short. Neither is an OSError, so both skipped every
-    # network handler and ended the poll in a traceback with health "error".
+    # A wifi sign-in page or a proxy can answer 200 with HTML or with JSON of
+    # its own, and a dropped link can cut a body short. None is an OSError, so
+    # each skipped every network handler: the poll ended in a traceback with
+    # health "error", or, for an object with no rows, filed a quiet "ok".
     BAD_REPLIES = {
         "html": b"<html><body>Sign in to the wifi</body></html>",
         "empty": b"",
         "cut-off": http.client.IncompleteRead(b'{"rows": [', 400),
+        "a list": b"[]",
+        "an error object": b'{"error": "upstream timed out"}',
+        "null rows": b'{"rows": null}',
     }
 
     @pytest.mark.parametrize("kind", BAD_REPLIES)
-    def test_retries_a_reply_that_is_not_json(self, monkeypatch, kind):
+    def test_retries_a_reply_that_is_not_a_search_reply(self, monkeypatch, kind):
         bad = self._RawResp(self.BAD_REPLIES[kind])
         calls = self._urlopen(monkeypatch, [bad, self._Resp({"rows": []})])
         assert poll.search({})["rows"] == []
@@ -502,6 +506,16 @@ class TestHeartbeat:
         assert health["status"] == "api-unreachable"
         assert "not JSON" in health["detail"]
         assert "Traceback" not in poll.LOG_FILE.read_text()
+
+    def test_a_search_reply_with_no_rows_is_unreachable_not_a_quiet_ok(self, monkeypatch):
+        # recognized_token answers the profile check, so this reply is the search's
+        page = TestSearchRetries._Resp({"error": "upstream timed out"})
+        monkeypatch.setattr(poll.urllib.request, "urlopen", lambda req, timeout=None: page)
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
+        poll.main()
+        health = self._health()
+        assert health["status"] == "api-unreachable"
+        assert "/api/search" in health["detail"]
 
     def test_records_an_api_error_status(self, monkeypatch):
         def boom(cursor):
@@ -1008,6 +1022,19 @@ class TestUnrecognizedToken:
         monkeypatch.setattr(poll, "fetch_new", lambda cursor: pytest.fail("must not search"))
         poll.main()
         assert self._health()["status"] == "api-unreachable"
+        assert not poll.TOKENFAIL_FILE.exists()
+
+    @pytest.mark.usefixtures("real_token_owner")
+    def test_a_profile_with_no_userid_is_a_network_fault_not_a_dead_token(self, monkeypatch):
+        # a proxy's JSON, not the api's: the anonymous profile carries "userid": null
+        page = TestSearchRetries._Resp({"status": "ok"})
+        monkeypatch.setattr(poll.urllib.request, "urlopen", lambda req, timeout=None: page)
+        monkeypatch.setattr(poll.time, "sleep", lambda *a: None)
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: pytest.fail("must not search"))
+        poll.main()
+        health = self._health()
+        assert health["status"] == "api-unreachable"
+        assert "/api/profile" in health["detail"]
         assert not poll.TOKENFAIL_FILE.exists()
 
 

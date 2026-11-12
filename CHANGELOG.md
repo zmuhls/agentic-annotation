@@ -9,6 +9,11 @@ on `main`.
 
 ### Added
 
+- `docs/examples/bootstrap-preview.md` shows what `bootstrap.py` drafts for a
+  fictional account: the preview, the nodes section, and the routing tables,
+  taken from a real run on made-up groups. It ends with the edits to make
+  before the first poll. The README links to it from the bootstrap section.
+
 - Each poll asks `/api/profile` whose token it holds before it searches. When
   the API does not recognize the token, the poll holds. It does not search,
   the cursor stays put, the log says so once, and the heartbeat reads
@@ -131,6 +136,20 @@ on `main`.
   explain the kill.
 
 ### Fixed
+
+- An API reply that parses as JSON but is not the shape the endpoint sends is
+  now handled as a network fault, like a reply that is not JSON. A proxy or a
+  sign-in portal can answer with JSON of its own. A bare `"OK"` or a list
+  crashed the scripts with an `AttributeError` at the first `.get`. A profile
+  object with no `userid` read as a dead token, and the poll told the user
+  to make a new one. A search object with no `rows` read as a quiet poll that
+  found nothing new, with the heartbeat set to `ok`. `bootstrap_ia.get` now
+  checks each reply against the shape the API sends (probed live). For
+  `/api/profile` that is an object with a `userid`, which is null when
+  anonymous. For `/api/profile/groups` it is a list of objects, and for
+  `/api/search` an object whose `rows` is a list of objects. Any other reply
+  raises `ApiReplyError`, so the poll retries it and sets the heartbeat to
+  `api-unreachable`, and `doctor.py` warns instead of failing the token check.
 
 - An API reply that is not JSON or is cut off is now handled as a network
   fault. Before, it crashed every script. A wifi sign-in page or a proxy can

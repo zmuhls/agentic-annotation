@@ -73,17 +73,38 @@ def require_recognized(token):
 
 
 class ApiReplyError(OSError):
-    """A reply that did not come back whole from the api: not JSON, or cut off.
+    """A reply that did not come back whole from the api: not JSON, cut off, or
+    JSON of a shape the endpoint never sends (see REPLY_SHAPES).
 
-    A wifi sign-in page or a proxy can answer 200 with HTML, and a dropped link
-    can cut a body short (http.client.IncompleteRead). Neither is an OSError, so
-    both skipped every network handler. The poll ended in a traceback with an
-    "error" heartbeat, and the bootstrap scripts ended in a traceback too. As an
-    OSError it is retried and reported like the network drop it usually is.
+    A wifi sign-in page or a proxy can answer 200 with HTML or with JSON of its
+    own, and a dropped link can cut a body short (http.client.IncompleteRead).
+    None is an OSError, so each skipped every network handler. The poll ended in
+    a traceback with an "error" heartbeat, and the bootstrap scripts ended in a
+    traceback too. As an OSError it is retried and reported like the network
+    drop it usually is.
     """
 
     def __init__(self, endpoint, problem):
         super().__init__(f"{endpoint}: {problem}")
+
+
+def _objects(value):
+    return isinstance(value, list) and all(isinstance(v, dict) for v in value)
+
+
+# What each endpoint the scripts read sends when the api answers (probed live).
+# The anonymous profile still carries "userid", as null. JSON of any other
+# shape is a proxy's or a portal's, not the api's: a bare "OK" or a list
+# crashed at the first `.get`, an object with no `userid` read as a dead
+# token, and a search with no `rows` read as a quiet poll with nothing new.
+REPLY_SHAPES = {
+    "profile": ("object with a userid", lambda r: isinstance(r, dict) and "userid" in r),
+    "profile/groups": ("list of groups", _objects),
+    "search": (
+        "object with a rows list",
+        lambda r: isinstance(r, dict) and _objects(r.get("rows")),
+    ),
+}
 
 
 def get(path, token, **params):
@@ -100,11 +121,18 @@ def get(path, token, **params):
     except http.client.HTTPException as e:
         raise ApiReplyError(endpoint, f"reply cut off or garbled ({type(e).__name__})") from e
     try:
-        return json.loads(body.decode())
+        reply = json.loads(body.decode())
     except ValueError:  # JSONDecodeError and UnicodeDecodeError both are
         raise ApiReplyError(
             endpoint, "reply was not JSON; a wifi sign-in page or a proxy may have answered"
         ) from None
+    expected, fits = REPLY_SHAPES.get(path, (None, None))
+    if fits is not None and not fits(reply):
+        raise ApiReplyError(
+            endpoint,
+            f"reply was JSON but not the {expected} the api sends; a proxy may have answered",
+        )
+    return reply
 
 
 def api_reason(err):
