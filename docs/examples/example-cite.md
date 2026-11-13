@@ -1,18 +1,18 @@
-# Cite: Chapter 3 draft
+# Cite: Street Trees (draft)
 
-- **artifact**: https://zmuhls.github.io/diss-draft/chapter-3/
-- **annotation**: https://hyp.is/TEST2/zmuhls.github.io/diss-draft/chapter-3/
+- **artifact**: https://essays.example.org/street-trees/
+- **annotation**: https://hyp.is/Rk7pW2nYc4Ve/essays.example.org/street-trees/
 - **tagged**: hedge, cite
 - **created**: 2026-07-15T00:00:00+00:00
 
 ## Anchor
 
-> CUNY students invariably turn to Reddit before any official channel, proving that peer networks have replaced institutional advising.
+> Street trees always cool a block by ten degrees, which proves that every city should double its canopy.
 
 ## Annotation note
 
-This claims way too much from a handful of threads. Also needs scholarly backing on peer-to-peer institutional knowledge if I keep any version of it.
+This claims far more than one heat-map study can carry. It also needs a source if any version of it stays.
 
 ## Instructions
 
-Locate scholarly backing on peer-to-peer institutional knowledge transfer to support whichever hedged version of this claim survives. Search for work on informal student information networks, peer advising, and platform-mediated institutional knowledge — candidate directions: (1) higher-ed advising literature on informal/peer advising as a supplement to formal advising (e.g. work building on Karp's community college advising research), (2) platform studies/CMC literature on Reddit or online forums as sites of institutional knowledge-sharing (e.g. scholarship on r/csMajors, r/ApplyingToCollege-style advice communities), (3) CUNY-specific or urban-commuter-institution literature on students bypassing formal advising due to access/staffing gaps. Produce 2-3 citation candidates with a one-line note on what each would support, and mark where each would slot in — likely right after the hedged claim as a supporting footnote/parenthetical, or earlier as background establishing peer advising as a known phenomenon before this passage narrows to Reddit specifically.
+Find published support for whichever hedged version of this claim survives. Search in three directions: (1) urban-climate studies that compare air or surface temperature under street-tree canopy with nearby unshaded streets, (2) municipal or public-health reports that tie canopy cover to heat illness or energy use, and (3) work on the limits of cooling estimates, such as how humidity, tree species, and street width change the effect. Return two or three candidate sources, each with a one-line note on what it would support, and mark where each fits: right after the hedged claim as a supporting citation, or one paragraph earlier as background before the essay narrows to a single neighborhood.

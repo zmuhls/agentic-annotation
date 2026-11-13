@@ -110,6 +110,11 @@ on `main`.
 
 ### Changed
 
+- The three action-file examples in `docs/examples/` (`example-revision.md`,
+  `example-hedge.md`, `example-cite.md`) now come from fictional
+  `example.org` pages instead of the maintainer's own drafts. They are written
+  by the watcher's own `write_action_file`, so they match what lands in
+  `actions/`. The README links them from the tagging section.
 - README and INSTALL state the real Python floor, 3.9 (macOS's
   `/usr/bin/python3`, which CI tests), rather than 3.11. The README's lint
   steps match CI: ruff pinned, and `ruff format --check` included.

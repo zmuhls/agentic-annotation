@@ -1,18 +1,18 @@
-# Hedge: Chapter 3 draft
+# Hedge: Street Trees (draft)
 
-- **artifact**: https://zmuhls.github.io/diss-draft/chapter-3/
-- **annotation**: https://hyp.is/TEST2/zmuhls.github.io/diss-draft/chapter-3/
+- **artifact**: https://essays.example.org/street-trees/
+- **annotation**: https://hyp.is/Rk7pW2nYc4Ve/essays.example.org/street-trees/
 - **tagged**: hedge, cite
 - **created**: 2026-07-15T00:00:00+00:00
 
 ## Anchor
 
-> CUNY students invariably turn to Reddit before any official channel, proving that peer networks have replaced institutional advising.
+> Street trees always cool a block by ten degrees, which proves that every city should double its canopy.
 
 ## Annotation note
 
-This claims way too much from a handful of threads. Also needs scholarly backing on peer-to-peer institutional knowledge if I keep any version of it.
+This claims far more than one heat-map study can carry. It also needs a source if any version of it stays.
 
 ## Instructions
 
-Replace the universal claim with a scope- and frequency-bound version tied to the actual corpus evidence. Cut 'invariably' and 'proving' — the corpus supports a pattern among some students in some threads, not a categorical behavior across the CUNY student population, and correlation in the threads doesn't establish that peer networks have 'replaced' institutional advising (a causal/displacement claim the data can't carry). Rewrite along the lines of: 'In several threads across [name subreddits/years], students describe turning to Reddit before consulting official advising channels, suggesting that for at least some students, peer networks supplement or preempt institutional advising.' Quantify 'several' against the actual thread count once pulled from the corpus (see the paired `cite`/evidence check), and swap 'replaced' for 'supplement,' 'preempt,' or 'compete with' depending on what the evidence shows.
+Replace the universal claim with one bound to the evidence the essay cites. Cut 'always' and 'proves'. The draft's own readings show cooler air on some tree-lined blocks on summer afternoons, not a fixed ten-degree drop on every block, and a temperature difference does not by itself settle what every city should do. Rewrite along these lines: 'On the blocks the draft measured, tree-lined streets ran several degrees cooler on summer afternoons than nearby bare ones, which suggests that wider canopy could ease heat in similar neighborhoods.' Replace 'several' with the measured range once the paired `cite` check names a source, and move the policy recommendation to a later paragraph where costs and trade-offs can be weighed.

@@ -1,18 +1,18 @@
-# Revision: CUNY Reddit Stories
+# Revision: Setting Up Field Notes
 
-- **artifact**: https://zmuhls.github.io/cuny-reddit-stories/
-- **annotation**: https://hyp.is/TEST/zmuhls.github.io/cuny-reddit-stories/
+- **artifact**: https://docs.example.org/field-notes/setup/
+- **annotation**: https://hyp.is/Xq3fT9wLm2Ak/docs.example.org/field-notes/setup/
 - **tagged**: revision
 - **created**: 2026-07-15T00:00:00+00:00
 
 ## Anchor
 
-> when a hold is unexplained on a screen, an office has not answered, a class may disappear, or classmates leave after class.
+> Configuration of the importer, which must happen before the first run and requires that the token, the folder path, and the schedule all be set, is something that is described in the section below.
 
 ## Annotation note
 
-Bleh, all kinds of heavy turgid syntax and subject-actor coordination here. Break this into shorter sentences with students and offices as the actors; cut the list-like stacking.
+Too much in one sentence, and nobody does anything in it. Lead with what the reader does, one step per sentence.
 
 ## Instructions
 
-Break the single stacked clause into separate short sentences, each with a concrete actor performing the action instead of abstract conditions existing. For example: 'A hold appears on the screen with no explanation. An office doesn't answer. A class disappears from the schedule. Classmates leave after class ends.' Give 'students' and 'the office' as explicit subjects where the passage currently lets conditions (a hold, a class) sit as the grammatical subject instead of the people or offices responsible. Cut the four-item list-like coordination ('X, Y, or Z') and instead let each scenario stand as its own sentence so the sequence reads as escalating instances rather than a stacked inventory.
+Rewrite the sentence as a short lead-in followed by one sentence per setting, each with the reader as the actor and an imperative verb. For example: 'Set up the importer before its first run. Paste your token into the config file. Choose the folder it reads from. Pick a schedule.' Point to the next section in its own short sentence ('The next section walks through each step.') instead of burying the pointer in the closing clause. Cut 'configuration of', 'which must happen', and 'is something that is': each delays the verb without adding meaning. Keep the three settings in the order the config file lists them, so the prose and the file read the same way.

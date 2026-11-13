@@ -103,6 +103,14 @@ Sonnet reads it live):
 Untagged annotations are still classified into the IA with a one-sentence
 "role" statement.
 
+Each action file names the page, links the annotation in context, and quotes
+the anchor and your note before Sonnet's instructions.
+[`example-revision.md`](docs/examples/example-revision.md) shows one tag on one
+annotation. [`example-hedge.md`](docs/examples/example-hedge.md) and
+[`example-cite.md`](docs/examples/example-cite.md) are the two files one
+annotation tagged `hedge` + `cite` produces. All three come from fictional
+pages, written by the watcher's own `write_action_file`.
+
 ## Operations
 
 ```sh
