@@ -2,9 +2,11 @@
 
 Date: 2026-07-15 · Status: implemented (autonomous session; decisions documented here for review)
 
+> **Historical record.** This is the original design note for the first, single-user build. It is kept for the reasoning behind the architecture, and the maintainer's account, sites and group names have been replaced with placeholders. The project has since been generalized: accounts, groups and domains come from `config.json` and `routing.json`, and the taxonomy is drafted per user by `scripts/bootstrap.py`. For current behavior, read the README and INSTALL.md.
+
 ## Goal
 
-1. Pull every Hypothesis annotation by `acct:zachmuhlbauer@hypothes.is` from the past two years (2024-07-15 →).
+1. Pull every Hypothesis annotation by one account (`acct:<username>@hypothes.is`) from the past two years (2024-07-15 →).
 2. Sort them into an information architecture.
 3. Run an automatic routine on every new annotation: Claude **Sonnet 5** places the annotation within the architecture, and tags `revision` / `expansion` / `condense` additionally produce instruction files for the target written artifact / development object.
 
@@ -16,7 +18,7 @@ Date: 2026-07-15 · Status: implemented (autonomous session; decisions documente
 
 ## Approaches considered
 
-1. **launchd + `claude -p` (chosen)** — local, no extra API key (uses Claude Code's own auth), survives reboots, files land next to the dissertation workflow. Polling stands in for the webhook.
+1. **launchd + `claude -p` (chosen)** — local, no extra API key (uses Claude Code's own auth), survives reboots, files land next to the local writing workflow. Polling stands in for the webhook.
 2. Scheduled cloud agent (Claude routines) — runs off-machine, but can't write to the local IA files that downstream writing work consumes.
 3. Python + Anthropic SDK daemon — cleaner API surface (structured outputs), but requires a separate `ANTHROPIC_API_KEY`; the CLI already has authenticated access.
 
@@ -24,7 +26,7 @@ Date: 2026-07-15 · Status: implemented (autonomous session; decisions documente
 
 - **Backfill**: `scripts/fetch_annotations.py` paginates `/api/search` (user-filtered, `sort=created asc`, `search_after` cursor) → `data/annotations.jsonl` (225 annotations found in-window; lifetime total 1,703 — older ones excluded per the two-year scope).
 - **Initial sort**: `scripts/build_ia.py`, deterministic rules (own-artifact domains ▸ group ▸ domain heuristics) → `architecture/map.jsonl` + generated `overview.md`. Rule-based for the bulk; model judgment reserved for the ongoing stream.
-- **Taxonomy**: `architecture/ia.md` — six top-level nodes (artifacts, dissertation, ai-pedagogy, teaching, reading, inbox) with children, grounded in the observed distribution (60 annots on zmuhls.github.io, 29 on localhost:4000 previews, 18 on cuny-ai-lab.github.io; groups: diss, AI FIG, CSC10800…). Cross-cutting workflow axis from tags: revision, expansion, condense, outstanding, resolved (the latter two already in active use — 38/11 occurrences).
+- **Taxonomy**: `architecture/ia.md` — six top-level nodes (own artifacts, a long-form writing project, two subject areas, reading, inbox) with children, grounded in the observed distribution (most annotations sat on the maintainer's own published site and its localhost previews, then on a lab site; the rest came from a handful of private groups for a thesis, a reading group and a course). Cross-cutting workflow axis from tags: revision, expansion, condense, outstanding, resolved (the latter two already in active use — 38/11 occurrences).
 - **Watcher**: `scripts/poll.py` — flock-guarded, cursor on `updated`, dedupe via `seen.json`, per-annotation `claude -p --model claude-sonnet-5 --output-format json` with ia.md embedded in the prompt; JSON contract `{node, new_node, role, action}`. Fallback to rule-based placement if the model call fails (`classified_by: rules-fallback`). New-node proposals accumulate in `emergent-nodes.md` for human review; Sonnet cannot invent top-level nodes.
 - **Actions**: 17-tag vocabulary (amended 2026-07-15 at user request, from the original 3). Prose & argument: revision, expansion, condense, restructure, hedge, reframe, exemplify, counter, define. Research & evidence: cite, evidence, verify, question, synthesize (synthesize receives sibling annotations at the same node as context). Development objects: bug, feature, a11y. Tags combine — one `actions/<date>-<type>-<id>.md` file per action tag, each with artifact URI, anchor quote, original note, and Sonnet's instructions. Stub file written even if the model omits instructions, so no directive is dropped. Definitions live in `architecture/ia.md` so editing them changes model behavior without code changes.
 - **Scheduler**: StartInterval 300, logs to `logs/`. *(Amended 2026-08-13: the repo no longer carries a plist. `scripts/install_agent.py` generates the unit — a launchd plist on macOS, a systemd user timer on Linux — under the generic label `local.hypothesis-watcher`, pinned to this checkout and an interpreter the installer verifies exists. See INSTALL.md.)*

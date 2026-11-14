@@ -110,6 +110,11 @@ on `main`.
 
 ### Changed
 
+- The original design note in `docs/superpowers/specs/` is now marked as a
+  historical record and points to the README and INSTALL.md for current
+  behavior. The maintainer's account, sites and group names in it are
+  replaced with placeholders.
+
 - The three action-file examples in `docs/examples/` (`example-revision.md`,
   `example-hedge.md`, `example-cite.md`) now come from fictional
   `example.org` pages instead of the maintainer's own drafts. They are written
