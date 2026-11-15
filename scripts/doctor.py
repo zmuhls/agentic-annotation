@@ -10,9 +10,9 @@ had nothing to catch it with.
 So check the things whose absence is otherwise invisible: a scheduler unit for
 *this* checkout whose interpreter still exists, a heartbeat young enough that a
 poll must have happened, the `claude` binary and whether it is signed in (`claude
-auth status`, which spends nothing), the config keys poll.py needs, and
-whether the API still recognizes the token (one GET to /api/profile; skip it
-with --offline).
+auth status`, which spends nothing), the config keys poll.py needs, whether
+the taxonomy is still the shipped example, and whether the API still recognizes
+the token (one GET to /api/profile; skip it with --offline).
 
     python3 scripts/doctor.py
     python3 scripts/doctor.py --offline   # no network: skip the token check
@@ -31,11 +31,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
+from appconfig import (  # noqa: E402
+    claude_bin,
+    claude_env,
+    config_credential,
+    ia_source,
+    load_config,
+)
 from bootstrap_ia import get as api_get  # noqa: E402
 
 POLL_SCRIPT = ROOT / "scripts" / "poll.py"
 HEALTH_FILE = ROOT / "data" / "health.json"
+IA_FILE = ROOT / "architecture" / "ia.md"
 LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 SYSTEMD_DIR = Path.home() / ".config" / "systemd" / "user"
 DEFAULT_INTERVAL = 300
@@ -186,6 +193,31 @@ def check_config(config):
     return Check("ok", "config", f"watching {config['user']}")  # never print the token
 
 
+def check_taxonomy(ia_file=IA_FILE):
+    """Flag a watcher classifying against the shipped example; say nothing
+    when the adopter's own ia.md is in place."""
+    if ia_file.exists():
+        return []
+    example = ia_source(ia_file)
+    if example.exists():
+        return [
+            Check(
+                "warn",
+                "taxonomy",
+                f"no {ia_file.name} yet, so the classifier reads {example.name}, a "
+                "sample taxonomy — draft your own with scripts/bootstrap.py --write",
+            )
+        ]
+    return [
+        Check(
+            "fail",
+            "taxonomy",
+            f"neither {ia_file.name} nor {example.name} exists in {ia_file.parent} — "
+            "every classification will fail; restore the example with git checkout",
+        )
+    ]
+
+
 def check_since(config):
     """Flag a `since` the api may refuse; say nothing when it is fine or unset.
 
@@ -329,6 +361,7 @@ def run_checks(
     launch_agents=LAUNCH_AGENTS,
     systemd_dir=SYSTEMD_DIR,
     health_file=HEALTH_FILE,
+    ia_file=IA_FILE,
     offline=False,
     fetch_profile=fetch_profile,
 ):
@@ -341,6 +374,7 @@ def run_checks(
         check_config(config),
         *token,
         *check_since(config),
+        *check_taxonomy(ia_file),
         check_claude(config),
         *check_units(units),
         check_heartbeat(

@@ -4,6 +4,9 @@ config.json
 # personal placement tables (group ids, sites you annotate)
 routing.json
 
+# personal taxonomy (your groups, sites, projects); ia.example.md is the committed sample
+architecture/ia.md
+
 # annotation content (includes private Hypothesis groups) and watcher state
 data/
 actions/

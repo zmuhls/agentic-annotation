@@ -53,8 +53,8 @@ Things to notice:
 
 ## The drafted nodes section
 
-`--write --force` replaces the `## Nodes` section of `architecture/ia.md`
-with this. The action vocabulary below that section is copied over unchanged.
+`--write` writes `architecture/ia.md` with this as its `## Nodes` section
+(`--write --force` when the file already exists). The action vocabulary below that section is copied over unchanged.
 
 ```markdown
 ## Nodes

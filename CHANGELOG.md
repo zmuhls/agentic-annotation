@@ -7,6 +7,19 @@ on `main`.
 
 ## Unreleased
 
+### Changed
+
+- `architecture/ia.md` is no longer tracked. It is the taxonomy of whoever runs
+  the watcher, so it is now gitignored like `config.json` and `routing.json`,
+  and the repo ships `architecture/ia.example.md`, a sample for a fictional
+  account whose node ids match `routing.example.json`. While `ia.md` is absent
+  the classifier and the bootstrap scripts read the sample, and `doctor.py`
+  warns that the taxonomy is still the sample. `bootstrap.py --write` and
+  `bootstrap_ia.py --write` no longer need `--force` on a fresh clone, only to
+  replace an `ia.md` that exists. **Upgrading:** this pull deletes a tracked
+  `ia.md`. Copy yours aside before pulling (`cp architecture/ia.md /tmp/`) and
+  copy it back afterwards; git then leaves it alone.
+
 ### Added
 
 - `docs/examples/bootstrap-preview.md` shows what `bootstrap.py` drafts for a

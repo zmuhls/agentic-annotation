@@ -26,7 +26,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import claude_bin, claude_env, config_credential, load_config  # noqa: E402
+from appconfig import (  # noqa: E402
+    claude_bin,
+    claude_env,
+    config_credential,
+    ia_source,
+    load_config,
+)
 from bootstrap_ia import TOKEN_REMEDY, api_reason, first_child, get, nodes_of  # noqa: E402
 from build_ia import (  # noqa: E402
     actions_for,
@@ -232,7 +238,7 @@ def new_node_example(ia):
 
 
 def classify_prompt(ann):
-    ia = IA_FILE.read_text()
+    ia = ia_source(IA_FILE).read_text()
     group = group_name_for(ann)
     predicted = node_for(ann)
     payload = {

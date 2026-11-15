@@ -50,7 +50,7 @@ Then draft your taxonomy and placement tables from your own annotation history:
 
 ```sh
 python3 scripts/bootstrap.py                   # preview: each group and busy domain → its node
-python3 scripts/bootstrap.py --write --force   # writes architecture/ia.md and routing.json
+python3 scripts/bootstrap.py --write           # writes architecture/ia.md and routing.json
 ```
 
 That one command runs the two drafters described below, in order, from a single
@@ -60,10 +60,12 @@ even in the preview, and it writes both or neither. Run the two scripts on their
 own for a full-text preview of either file, or to redraft one after editing the
 other.
 
-**The taxonomy (`bootstrap_ia.py`).** `architecture/ia.md` ships with the
-maintainer's taxonomy, and it is the file the classifier reads on every poll —
-leaving it in place would sort your annotations into someone else's projects.
-The script replaces its nodes section with one top-level node per group you
+**The taxonomy (`bootstrap_ia.py`).** `architecture/ia.md` is the file the
+classifier reads on every poll. It is yours and gitignored, so a fresh clone has
+only `architecture/ia.example.md`, a sample for a fictional account, and the
+watcher reads that until `ia.md` exists (`doctor.py` warns while it does) —
+which would sort your annotations into someone else's projects. The script
+writes `ia.md` from the sample, replacing the nodes section with one top-level node per group you
 belong to, each group's busiest domains as children, your public-layer reading
 under `reading`, and `inbox`. The action-tag vocabulary below it is the same for
 everyone (`poll.py` and `build_ia.py` implement it), so it carries over
@@ -154,7 +156,7 @@ exists only for generating a unit meant for another machine.)
 ## 6. Confirm it is running
 
 ```sh
-python3 scripts/doctor.py     # config, token, claude cli, scheduler unit, heartbeat
+python3 scripts/doctor.py     # config, token, taxonomy, claude cli, scheduler unit, heartbeat
 tail -f logs/watcher.log
 ```
 
@@ -174,6 +176,7 @@ logs are trimmed to their last ~250 KB automatically once they pass 1 MB.
 |---|---|
 | `claude cli is not authenticated (…)` in `logs/watcher.log` | The CLI login expired. Run `claude`, sign in, or set a long-lived token in `claude_env` so it stops lapsing; if the line names a `claude_env` credential, that credential was refused, so replace it. Until you do, new annotations wait in the queue (heartbeat `status: auth`, `doctor.py` fails the `claude cli` check), and the first poll after you sign in classifies them. The line is logged once per lapse. |
 | `claude cli could not start (…)` in `logs/watcher.log` | Nothing executable at the path the watcher tried, which the line names; an update or reinstall can move the CLI. Install it, or point `claude_bin` in `config.json` at it. Until then new annotations wait in the queue (heartbeat `status: no-cli`, `doctor.py` fails the `claude cli` check). Set `"model": "rules"` to run without it. |
+| `doctor.py` warns about `taxonomy` | There is no `architecture/ia.md`, so the classifier is reading the sample `ia.example.md`. Run `bootstrap.py --write`, or copy the sample to `ia.md` and edit it. |
 | Everything lands in `inbox` | `routing.json` is missing, or it was drafted before `bootstrap_ia.py` rewrote `ia.md`. Re-run `bootstrap_routing.py --write --force`, or `bootstrap.py --write --force` to redraft both. |
 | `hypothesis api unreachable (…)` | Transient — a sleeping laptop or dropped wifi. Retried with backoff, logged once per outage, cleared on recovery. From the bootstrap scripts or `fetch_annotations.py` the same line ends `nothing drafted` or `left as it was`: they fetch before they write, so nothing changed. Re-run once the network is back. |
 | `hypothesis api rejected the request (…)` | A `4xx` from the API: the request will fail the same way on every poll until `config.json` changes. Not retried, by design. The text in parentheses is the API's own reason. |

@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bootstrap_ia  # noqa: E402
-from appconfig import load_config  # noqa: E402
+from appconfig import ia_source, load_config  # noqa: E402
 
 OUT = ROOT / "routing.json"
 IA_FILE = ROOT / "architecture" / "ia.md"
@@ -86,7 +86,8 @@ def main():
         bootstrap_ia.require_recognized(token)
         groups = bootstrap_ia.get("profile/groups", token)
         annotations = bootstrap_ia.recent_annotations(token, user) if user else []
-    known = bootstrap_ia.node_ids(IA_FILE.read_text()) if IA_FILE.exists() else set()
+    ia = ia_source(IA_FILE)
+    known = bootstrap_ia.node_ids(ia.read_text()) if ia.exists() else set()
     routing = skeleton(groups, bootstrap_ia.domains_by_group(annotations), known)
     text = json.dumps(routing, indent=2) + "\n"
 

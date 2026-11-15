@@ -10,10 +10,11 @@ rather than the one on disk, and writes either both files or neither — so the
 preview already shows where each group will land.
 
     python3 scripts/bootstrap.py                    # preview the plan
-    python3 scripts/bootstrap.py --write --force    # write ia.md and routing.json
+    python3 scripts/bootstrap.py --write            # write ia.md and routing.json
 
-architecture/ia.md always exists (it is the template), so writing needs
---force. The two scripts still work on their own for a full-text preview or for
+On a fresh clone neither file exists and the draft starts from the committed
+architecture/ia.example.md. Once either exists, writing needs --force. The two
+scripts still work on their own for a full-text preview or for
 redrafting one file after hand edits to the other.
 """
 
@@ -24,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bootstrap_ia  # noqa: E402
 import bootstrap_routing  # noqa: E402
-from appconfig import load_config  # noqa: E402
+from appconfig import ia_source, load_config  # noqa: E402
 
 IA_FILE = bootstrap_ia.OUT
 ROUTING_FILE = bootstrap_routing.OUT
@@ -66,26 +67,28 @@ def main():
     user = config.get("user", "")
     if not user:
         sys.exit("no user in config.json — set it to acct:<you>@hypothes.is")
-    if not IA_FILE.exists():
-        sys.exit(f"{IA_FILE} is missing — it is the template this script rewrites")
+    template = ia_source(IA_FILE)
+    if not template.exists():
+        sys.exit(f"{template} is missing — it is the template this script rewrites")
     write = "--write" in sys.argv
     # Both guards run before the API is asked anything, so a refusal never
     # leaves a new ia.md beside a routing.json drafted against the old one.
     if write and "--force" not in sys.argv:
         taken = [p.name for p in (IA_FILE, ROUTING_FILE) if p.exists()]
-        sys.exit(f"{' and '.join(taken)} already exist(s) — pass --force to overwrite")
+        if taken:
+            sys.exit(f"{' and '.join(taken)} already exist(s) — pass --force to overwrite")
 
     with bootstrap_ia.api_or_exit("nothing drafted"):
         bootstrap_ia.require_recognized(token)
         groups = bootstrap_ia.get("profile/groups", token)
         annotations = bootstrap_ia.recent_annotations(token, user)
-    ia_text, routing = drafts(IA_FILE.read_text(), user, groups, annotations)
+    ia_text, routing = drafts(template.read_text(), user, groups, annotations)
 
     print("\n".join(summary(ia_text, routing)))
     if not write:
         print(
             f"\n# {len(groups)} group(s), {len(annotations)} annotation(s) sampled; "
-            "re-run with --write --force to save both",
+            "re-run with --write to save both (add --force to replace existing files)",
             file=sys.stderr,
         )
         return

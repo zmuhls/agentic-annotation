@@ -1,49 +1,43 @@
 # Hypothesis Annotation Information Architecture
 
-Taxonomy for all annotations by `acct:zachmuhlbauer@hypothes.is`. Every
+Taxonomy for all annotations by `acct:you@hypothes.is`. Every
 annotation is assigned one **node** (where it lives) and optionally one
 **workflow status** (what should happen to it). The initial sort was
 rule-based (see `scripts/build_ia.py`); new annotations are placed by
 Claude Sonnet 5 via `scripts/poll.py`.
 
 Node IDs are slash paths. Sonnet may propose deeper children under an
-existing node (e.g. `dissertation/corpus/transfer`) but may not invent new
+existing node (e.g. `dissertation/corpus/<child>`) but may not invent new
 top-level nodes; genuinely unplaceable annotations go to `inbox` and are
 listed in `architecture/emergent-nodes.md` for review.
+
+<!-- sample: this file is a sample, written for a fictional graduate student,
+and its node ids match routing.example.json. Copy it to architecture/ia.md and
+edit, or let `python3 scripts/bootstrap.py --write` draft ia.md from your own
+groups and annotation history. ia.md is gitignored; while it is absent the
+watcher reads this file. -->
 
 ## Nodes
 
 ### artifacts — notes on your own written artifacts & development objects
 Annotations on pages you author or build. These are self-addressed editorial
 notes; they carry workflow tags and are the primary source of action files.
-- `artifacts/personal-site` — zmuhls.github.io and its localhost:4000 previews
-- `artifacts/cuny-ai-lab` — cuny-ai-lab.github.io tutorials, docs, lab pages
-- `artifacts/inference-arcade` — bot.inference-arcade.com experiments
+- `artifacts/personal-site` — your-username.github.io and its localhost:4000 previews
 - `artifacts/other` — any other self-authored artifact or dev object
 
-### dissertation — CUNY Reddit dissertation research
-Annotations in the `diss` group, plus Reddit corpus material and scholarship
+### dissertation — thesis research
+Annotations in the Dissertation group, plus primary material and scholarship
 read for chapters.
-- `dissertation/sources` — scholarly reading for the diss (methods, theory, lit review)
-- `dissertation/corpus` — Reddit threads, CUNY community material, primary sources
+- `dissertation/sources` — scholarly reading (methods, theory, literature review)
+- `dissertation/corpus` — primary sources and community material under study
 - `dissertation/drafting` — notes toward argument, chapter, or prose moves
 
-### ai-pedagogy — AI, teaching, and the CUNY AI Lab orbit
-AI FIG | TLC group, Toolkit Annotations, TLC Social Reading Group, and
-reading about AI in education (criticaledtech.com and kin).
-- `ai-pedagogy/fig` — AI FIG / TLC social annotation
-- `ai-pedagogy/toolkit` — AI toolkit and tutorial source material
-- `ai-pedagogy/reading` — scholarship and commentary on AI + education
-
 ### teaching — course-facing annotation
-Course groups: CSC10800, ENG 2100/2150 sections, Lesson Prep, ITP.
-- `teaching/csc10800` — CSC10800 Annotation Group
-- `teaching/writing-courses` — ENG 2100 / ENG 2150 sections
-- `teaching/prep` — Lesson Prep, ITP, other instructional planning
+Course and seminar groups, and reading done to plan a class.
+- `teaching/prep` — lesson planning and seminar reading
 
-### reading — general intellectual reading not tied to a project above
-Public-layer and N.B. group annotation of scholarship and the open web.
-- `reading/digital-humanities` — DH methods, cultural analytics, text analysis
+### reading — general reading not tied to a project above
+Public-layer annotation of scholarship and the open web.
 - `reading/ai-ml` — AI/ML technical and critical reading
 - `reading/general` — everything else worth keeping
 
@@ -77,7 +71,7 @@ against the anchored passage.
 | Tag          | Directive |
 |--------------|-----------|
 | `cite`       | Find or verify a citable source for the anchored claim; produce citation candidates and where each would slot in |
-| `evidence`   | Specify what empirical/corpus evidence would ground the claim and exactly how to query for it (e.g. the Reddit corpus databases) |
+| `evidence`   | Specify what empirical/corpus evidence would ground the claim and exactly how to query for it (e.g. a dataset or archive you keep) |
 | `verify`     | Fact-check the anchored claim: enumerate what must be confirmed, against what source, and what would falsify it |
 | `question`   | Turn the note into a research brief: the question sharpened, what to read/search/test, expected outputs |
 | `synthesize` | Connect this annotation with its siblings at the same node; draft the synthesis note that binds them |

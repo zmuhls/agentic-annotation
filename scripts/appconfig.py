@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Config loading shared by poll.py and build_ia.py.
 
-Two files, split by what they hold. `config.json` carries the API token and the
+Two config files, split by what they hold. `config.json` carries the API token and the
 account to watch; `routing.json` carries the personal placement tables (group
 ids, own-artifact domains) that used to be literals in build_ia.py. Both are
 gitignored — this repo is public — and both fall back to a committed `.example`
@@ -38,6 +38,16 @@ def load_config():
 
 def load_routing():
     return load_json_with_example("routing")
+
+
+def ia_source(path):
+    """The taxonomy file to read: `path` (architecture/ia.md) when it exists,
+    else the committed `ia.example.md` beside it.
+
+    `ia.md` is personal — it names the groups, sites, and projects of whoever
+    runs the watcher — so it is gitignored like config.json and routing.json,
+    and a fresh clone has only the example until bootstrap.py drafts one."""
+    return path if path.exists() else path.with_name("ia.example.md")
 
 
 def claude_bin(config):

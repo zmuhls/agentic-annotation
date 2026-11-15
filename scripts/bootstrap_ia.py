@@ -2,8 +2,9 @@
 """Draft an architecture/ia.md from the adopter's own annotation history.
 
 `ia.md` is the one file a new adopter cannot copy from this repo: it is the
-taxonomy the classifier reads on every poll, and the version committed here
-describes one person's groups, sites, and projects. Written from scratch it is
+taxonomy the classifier reads on every poll, and it describes one person's
+groups, sites, and projects, so it is gitignored and the repo ships only a
+neutral `ia.example.md`. Written from scratch it is
 an hour of staring at a blank page; written from your own history it is an
 edit pass. So ask the API which groups you belong to (GET /api/profile/groups)
 and where you actually annotate (GET /api/search), and emit a nodes section
@@ -12,7 +13,8 @@ public layer folded into `reading`.
 
 The cross-cutting half of the file — the action-tag vocabulary that `poll.py`
 and `build_ia.py` both implement — is not personal, so it is carried over from
-the existing ia.md verbatim rather than restated here.
+the existing ia.md (or, on a fresh clone, ia.example.md) verbatim rather than
+restated here.
 
     python3 scripts/bootstrap_ia.py            # print to stdout
     python3 scripts/bootstrap_ia.py --write    # write ./architecture/ia.md
@@ -33,7 +35,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import load_config  # noqa: E402
+from appconfig import ia_source, load_config  # noqa: E402
 
 API = "https://api.hypothes.is/api"
 OUT = ROOT / "architecture" / "ia.md"
@@ -316,6 +318,8 @@ def draft(template_text, user, groups, counts):
     # watches, and the node it reaches for as an example. Both would read as
     # someone else's taxonomy in a file meant to become yours.
     preamble = re.sub(r"`acct:[^`]*`", f"`{user}`", preamble)
+    # ia.example.md says of itself that it is a sample; the draft is not one.
+    preamble = re.sub(r"<!-- sample:.*?-->\n\n?", "", preamble, flags=re.DOTALL)
     example = first_child(section)
     if example:
         preamble = re.sub(r"\(e\.g\. `[^`]+`\)", f"(e.g. `{example}/<child>`)", preamble, count=1)
@@ -329,9 +333,10 @@ def main():
     if not user:
         sys.exit("no user in config.json — set it to acct:<you>@hypothes.is")
 
-    if not OUT.exists():
-        sys.exit(f"{OUT} is missing — it is the template this script rewrites")
-    template_text = OUT.read_text()
+    template = ia_source(OUT)
+    if not template.exists():
+        sys.exit(f"{template} is missing — it is the template this script rewrites")
+    template_text = template.read_text()
 
     with api_or_exit("nothing drafted"):
         require_recognized(token)
@@ -343,11 +348,12 @@ def main():
         print(text, end="")
         print(
             f"\n# {len(groups)} group(s), {len(annotations)} annotation(s) sampled; "
-            "re-run with --write --force to save to architecture/ia.md",
+            "re-run with --write to save to architecture/ia.md "
+            "(add --force to replace one that exists)",
             file=sys.stderr,
         )
         return
-    if "--force" not in sys.argv:
+    if OUT.exists() and "--force" not in sys.argv:
         sys.exit(f"{OUT.name} already exists — pass --force to overwrite")
     OUT.write_text(text)
     print(

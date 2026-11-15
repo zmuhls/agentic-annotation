@@ -412,3 +412,21 @@ class TestExitCode:
 
     def test_warnings_alone_still_exit_zero(self):
         assert doctor.exit_code([doctor.Check("warn", "a", "")]) == 0
+
+
+class TestCheckTaxonomy:
+    """ia.md is gitignored, so a fresh clone classifies against the sample."""
+
+    def test_an_adopters_own_taxonomy_passes_silently(self, tmp_path):
+        (tmp_path / "ia.md").write_text("# mine")
+        assert doctor.check_taxonomy(tmp_path / "ia.md") == []
+
+    def test_running_on_the_example_is_a_warning_that_names_the_fix(self, tmp_path):
+        (tmp_path / "ia.example.md").write_text("# sample")
+        (check,) = doctor.check_taxonomy(tmp_path / "ia.md")
+        assert check.level == "warn"
+        assert "bootstrap.py" in check.detail
+
+    def test_no_taxonomy_at_all_fails(self, tmp_path):
+        (check,) = doctor.check_taxonomy(tmp_path / "ia.md")
+        assert check.level == "fail"

@@ -1,5 +1,6 @@
 """Tests for the config helpers poll.py and doctor.py share."""
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -57,3 +58,49 @@ class TestConfigCredential:
         assert appconfig.config_credential({"claude_env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}) is None
         assert appconfig.config_credential({"claude_env": {"CLAUDE_CODE_OAUTH_TOKEN": ""}}) is None
         assert appconfig.config_credential({"claude_env": "not an object"}) is None
+
+
+class TestIaSource:
+    """ia.md is personal and gitignored; a fresh clone has only ia.example.md."""
+
+    def test_prefers_the_adopters_own_file(self, tmp_path):
+        (tmp_path / "ia.md").write_text("mine")
+        (tmp_path / "ia.example.md").write_text("sample")
+        assert appconfig.ia_source(tmp_path / "ia.md").read_text() == "mine"
+
+    def test_falls_back_to_the_example_beside_it(self, tmp_path):
+        (tmp_path / "ia.example.md").write_text("sample")
+        assert appconfig.ia_source(tmp_path / "ia.md").read_text() == "sample"
+
+
+class TestShippedExamples:
+    """A fresh clone runs on the three example files, so they must agree."""
+
+    IA = (appconfig.ROOT / "architecture" / "ia.example.md").read_text()
+
+    def test_every_node_the_example_routing_names_is_in_the_example_taxonomy(self):
+        import bootstrap_ia
+
+        routing = json.loads((appconfig.ROOT / "routing.example.json").read_text())
+        named = {
+            *routing["artifact_domains"].values(),
+            *routing["group_nodes"].values(),
+            *routing["domain_contains"].values(),
+            *routing["domain_nodes"].values(),
+            *(o["node"] for o in routing["group_domain_overrides"]),
+            routing["general_node"],
+            routing["default_node"],
+        }
+        assert named <= bootstrap_ia.node_ids(self.IA)
+
+    def test_the_example_taxonomy_is_a_usable_template(self):
+        import bootstrap_ia
+
+        text = bootstrap_ia.draft(self.IA, "acct:new@hypothes.is", [], {})
+        assert "`acct:new@hypothes.is`" in text
+        assert "sample" not in text.split(bootstrap_ia.NODES_HEADING)[0]
+        assert bootstrap_ia.SHARED_TAIL_HEADING in text
+
+    def test_the_personal_taxonomy_is_not_tracked(self):
+        ignored = (appconfig.ROOT / ".gitignore").read_text().splitlines()
+        assert "architecture/ia.md" in ignored

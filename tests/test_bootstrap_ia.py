@@ -253,6 +253,20 @@ class TestMain:
             bootstrap_ia.main()
         assert env["ia"].read_text() == TEMPLATE
 
+    def test_write_without_force_keeps_an_existing_ia(self, env, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["bootstrap_ia.py", "--write"])
+        with pytest.raises(SystemExit, match="pass --force"):
+            bootstrap_ia.main()
+        assert env["ia"].read_text() == TEMPLATE
+
+    def test_a_fresh_clone_drafts_from_the_example_without_force(self, env, monkeypatch):
+        example = env["ia"].with_name("ia.example.md")
+        env["ia"].rename(example)
+        monkeypatch.setattr(sys, "argv", ["bootstrap_ia.py", "--write"])
+        bootstrap_ia.main()
+        assert "### diss-reading — Diss Reading" in env["ia"].read_text()
+        assert example.read_text() == TEMPLATE
+
 
 class TestGet:
     """get() is the one place every script reads an api reply."""

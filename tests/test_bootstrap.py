@@ -154,6 +154,15 @@ class TestMain:
         assert env["calls"] == []
         assert not env["routing"].exists()
 
+    def test_a_fresh_clone_drafts_from_the_example_without_force(self, env, monkeypatch):
+        # ia.md is gitignored: a new adopter has only ia.example.md beside it
+        env["ia"].rename(env["ia"].with_name("ia.example.md"))
+        monkeypatch.setattr(sys, "argv", ["bootstrap.py", "--write"])
+        bootstrap.main()
+        assert USER in env["ia"].read_text()
+        assert env["ia"].with_name("ia.example.md").read_text() == TEMPLATE
+        assert json.loads(env["routing"].read_text())["group_nodes"]
+
     @pytest.mark.parametrize(
         "config",
         [

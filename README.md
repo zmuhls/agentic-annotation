@@ -37,7 +37,8 @@ short anywhere resumes without losing an annotation.
 | `routing.example.json` | Documented schema and precedence for the above |
 | `data/annotations.jsonl` | Raw two-year pull (2024-07-15 →) |
 | `data/cursor.json`, `data/seen.json` | Watcher state |
-| `architecture/ia.md` | The taxonomy — hand-editable; Sonnet reads it on every classification |
+| `architecture/ia.md` | Your taxonomy — hand-editable; Sonnet reads it on every classification (gitignored) |
+| `architecture/ia.example.md` | A sample taxonomy for a fictional account; read while `ia.md` is absent, and the template the bootstrap drafts from |
 | `architecture/map.jsonl` | One record per annotation: node, workflow, role, quote, note, link |
 | `architecture/overview.md` | Generated per-node counts |
 | `architecture/emergent-nodes.md` | Sub-nodes Sonnet proposed; review and fold into ia.md |
@@ -58,21 +59,22 @@ short anywhere resumes without losing an annotation.
 **[INSTALL.md](INSTALL.md) is the full path** — requirements, config, backfill,
 scheduling on macOS/Linux, and troubleshooting. The short version:
 
-Nothing personal is compiled into the code. Two gitignored files hold everything
-that differs between people:
+Nothing personal is compiled into the code. Three gitignored files hold everything
+that differs between people: `config.json`, `routing.json`, and `architecture/ia.md`.
 
 ```sh
 cp config.example.json config.json && chmod 600 config.json
 # fill in api_token (hypothes.is → Developer), user (acct:you@hypothes.is), owner
 
 python3 scripts/bootstrap.py                  # preview where each group will land
-python3 scripts/bootstrap.py --write --force  # your taxonomy and routing, from your own history
+python3 scripts/bootstrap.py --write          # your taxonomy and routing, from your own history
 ```
 
-The committed `architecture/ia.md` is the maintainer's taxonomy, and it is what
-the classifier reads on every poll, so replace it first. `bootstrap.py` runs two
+Until `architecture/ia.md` exists the classifier reads `architecture/ia.example.md`,
+a sample taxonomy for a fictional account, so draft your own first. Once either
+file exists, `--write` needs `--force` to replace it. `bootstrap.py` runs two
 drafters in order, from one fetch of your groups and recent annotations, and
-writes both files or neither. The first, `bootstrap_ia.py`, rewrites the nodes
+writes both files or neither. The first, `bootstrap_ia.py`, writes the nodes
 section as one node per group you belong to, each group's busiest domains as
 children, and your public reading under `reading`. The action-tag vocabulary
 below it is the same for everyone and carries over untouched. Then
