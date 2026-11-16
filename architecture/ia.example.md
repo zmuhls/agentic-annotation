@@ -93,7 +93,7 @@ against the anchored passage.
 
 ## Files
 
-- `architecture/map.jsonl` — one line per annotation: `{id, node, workflow, uri, title, created, tags, quote, note, link}`
+- `architecture/map.jsonl` — one line per annotation: `{id, node, workflow, actions, role, uri, title, created, updated, tags, group, quote, note, link, classified_by}`
 - `architecture/overview.md` — regenerated counts per node (do not hand-edit)
 - `architecture/emergent-nodes.md` — nodes Sonnet proposed beyond this doc, for review
-- `actions/` — generated instruction files for revision/expansion/condense annotations
+- `actions/` — generated instruction files, one per action tag on an annotation

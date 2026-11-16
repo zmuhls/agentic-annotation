@@ -3,9 +3,10 @@
 Pulls every Hypothesis annotation by a given account, sorts it into an
 information architecture, and watches for new annotations — each new or
 edited annotation is classified into the architecture by **Claude Sonnet 5**,
-and annotations tagged `revision`, `expansion`, or `condense` generate
-concrete instruction files for the target written artifact or development
-object.
+and each action tag on an annotation (`revision`, `hedge`, `cite`, `bug`, and
+13 more, listed under [Driving the system](#driving-the-system-from-hypothesis))
+generates a concrete instruction file for the target written artifact or
+development object.
 
 ## How it works
 
@@ -17,7 +18,7 @@ Hypothesis API ──(poll every 5 min, cursor on `updated`)──▶ scripts/po
               ┌─────────────────────────────────────────────────┤
               ▼                          ▼                      ▼
    architecture/map.jsonl       actions/<date>-<type>-<id>.md   logs/watcher.log
-   (node + role per annotation) (revision/expansion/condense)
+   (node + role per annotation) (one file per action tag)
 ```
 
 Hypothesis offers no webhooks, so a launchd agent polls every 5 minutes —
@@ -32,12 +33,16 @@ short anywhere resumes without losing an annotation.
 
 | Path | Purpose |
 |---|---|
-| `config.json` | API token, user, owner label, model, backfill start date (chmod 600) |
-| `routing.json` | Your placement tables — group ids, own-artifact domains (gitignored) |
+| `config.json` | API token, the account to watch, owner label, model, backfill start (`since`), spend caps (chmod 600) |
+| `config.example.json` | The committed template for `config.json` |
+| `routing.json` | Your placement tables — group ids, own-artifact domains |
 | `routing.example.json` | Documented schema and precedence for the above |
-| `data/annotations.jsonl` | Raw two-year pull (2024-07-15 →) |
+| `data/annotations.jsonl` | Your backfill: every annotation from `since` onward, as the API returned it |
 | `data/cursor.json`, `data/seen.json` | Watcher state |
-| `architecture/ia.md` | Your taxonomy — hand-editable; Sonnet reads it on every classification (gitignored) |
+| `data/health.json` | Heartbeat written by every completed poll |
+| `logs/watcher.log` | One line per classified annotation, action file, fault, and recovery |
+| `logs/launchd.log` | The scheduler's own stdout and stderr (the name is the same under systemd and cron) |
+| `architecture/ia.md` | Your taxonomy — hand-editable; Sonnet reads it on every classification |
 | `architecture/ia.example.md` | A sample taxonomy for a fictional account; read while `ia.md` is absent, and the template the bootstrap drafts from |
 | `architecture/map.jsonl` | One record per annotation: node, workflow, role, quote, note, link |
 | `architecture/overview.md` | Generated per-node counts |
@@ -52,7 +57,11 @@ short anywhere resumes without losing an annotation.
 | `scripts/poll.py` | The watcher + Sonnet 5 classifier |
 | `scripts/install_agent.py` | Generates the scheduler unit (launchd / systemd / cron) |
 | `scripts/doctor.py` | Health check: is the watcher scheduled, alive, and classifying? |
-| `data/health.json` | Heartbeat written by every completed poll (gitignored) |
+
+Your token and your annotation content stay out of git. `config.json`,
+`routing.json`, `architecture/ia.md`, `map.jsonl`, `overview.md`,
+`emergent-nodes.md`, and everything under `data/`, `actions/`, and `logs/` are
+gitignored. The `.example` files are the committed fallbacks a fresh clone runs on.
 
 ## Adopting it for your own annotations
 
@@ -92,8 +101,7 @@ before the first poll.
 
 Tag any annotation and within ~5 minutes each action tag produces its own
 instruction file in `actions/` (tags combine — `hedge` + `cite` yields two
-files). The full vocabulary is defined in `architecture/ia.md` (edit there;
-Sonnet reads it live):
+files):
 
 - **Prose & argument** — `revision`, `expansion`, `condense`, `restructure`,
   `hedge`, `reframe`, `exemplify`, `counter`, `define`
@@ -101,6 +109,12 @@ Sonnet reads it live):
   `synthesize` (draws on sibling annotations at the same node)
 - **Development objects** — `bug`, `feature`, `a11y`
 - **Status (no action file)** — `outstanding`, `resolved`
+
+These tags are fixed in code (`ACTION_TAGS` and `STATUS_TAGS` in
+`scripts/build_ia.py`). What each one asks for is worded in the Action
+vocabulary section of `architecture/ia.md`, which Sonnet reads on every
+classification, so rewording a directive there changes the instructions it
+writes. A tag added only to `ia.md` produces no file.
 
 Untagged annotations are still classified into the IA with a one-sentence
 "role" statement.

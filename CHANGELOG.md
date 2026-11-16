@@ -9,6 +9,15 @@ on `main`.
 
 ### Changed
 
+- README corrections. The intro and diagram said only `revision`, `expansion`
+  and `condense` produce action files, when all 17 action tags do. The tag
+  section said to edit the vocabulary in `ia.md`, but the tags that produce
+  files are fixed in `build_ia.py`, and `ia.md` only words each directive. The
+  layout table described one person's backfill and marked some gitignored
+  files but not others. It now has one note listing everything gitignored,
+  plus rows for `config.example.json` and the logs. The file map in
+  `ia.example.md` now lists every `map.jsonl` field.
+
 - `architecture/ia.md` is no longer tracked. It is the taxonomy of whoever runs
   the watcher, so it is now gitignored like `config.json` and `routing.json`,
   and the repo ships `architecture/ia.example.md`, a sample for a fictional
