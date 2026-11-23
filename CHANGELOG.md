@@ -31,6 +31,12 @@ on `main`.
 
 ### Added
 
+- `doctor.py --live` makes one real call through the watcher's own
+  `call_sonnet` path and fails when it is not answered. `claude auth status`
+  reads only the login stored on the machine, so it cannot tell whether the API
+  still accepts that login. The live call is the only billed check (a few cents
+  at most), so it is opt-in, and it cannot be combined with `--offline`.
+
 - `docs/examples/bootstrap-preview.md` shows what `bootstrap.py` drafts for a
   fictional account: the preview, the nodes section, and the routing tables,
   taken from a real run on made-up groups. It ends with the edits to make

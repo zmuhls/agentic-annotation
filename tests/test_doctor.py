@@ -405,6 +405,88 @@ class TestCheckClaude:
         assert str(binary) in check.detail
 
 
+class TestCheckClaudeLive:
+    """--live makes one real call; these never do (every `call` here is a fake).
+
+    `claude auth status` reads only the login stored on the machine, so it can
+    say "signed in" for a credential the API has since refused.
+    """
+
+    def _config(self, tmp_path):
+        binary = tmp_path / "claude"
+        binary.write_text("")
+        return {"claude_bin": str(binary)}
+
+    def test_an_answered_call_passes_and_shows_its_cost(self, tmp_path):
+        def call(prompt, meta):
+            meta["cost_usd"] = 0.0123
+            return {"ok": True}
+
+        (check,) = doctor.check_claude_live(self._config(tmp_path), call)
+        assert check.level == "ok"
+        assert "$0.0123" in check.detail
+
+    def test_an_answer_that_is_not_json_still_proves_the_login(self, tmp_path):
+        def call(prompt, meta):
+            raise ValueError("no JSON in model output: ok")
+
+        (check,) = doctor.check_claude_live(self._config(tmp_path), call)
+        assert check.level == "ok"
+
+    def test_a_refused_login_fails_with_the_watchers_own_message(self, tmp_path):
+        def call(prompt, meta):
+            raise RuntimeError("claude cli is not authenticated (Invalid API key)")
+
+        (check,) = doctor.check_claude_live(self._config(tmp_path), call)
+        assert check.level == "fail"
+        assert "Invalid API key" in check.detail
+
+    def test_rules_mode_and_a_missing_binary_make_no_call(self, tmp_path):
+        def call(prompt, meta):
+            raise AssertionError("no call should be made")
+
+        assert doctor.check_claude_live({"model": "rules"}, call) == []
+        assert doctor.check_claude_live({"claude_bin": str(tmp_path / "absent")}, call) == []
+
+    def test_the_default_call_goes_through_poll_with_a_single_attempt(self, monkeypatch):
+        import poll
+
+        seen = {}
+
+        def call_sonnet(prompt, attempts=2, meta=None):
+            seen.update(prompt=prompt, attempts=attempts)
+            return {"ok": True}
+
+        monkeypatch.setattr(poll, "call_sonnet", call_sonnet)
+        doctor.call_classifier(doctor.LIVE_PROMPT, {})
+        assert seen == {"prompt": doctor.LIVE_PROMPT, "attempts": 1}
+
+    def test_run_checks_makes_the_call_only_when_asked(self, tmp_path):
+        calls = []
+
+        def call(prompt, meta):
+            calls.append(prompt)
+
+        kwargs = dict(
+            config={**self._config(tmp_path), "api_token": "t", "user": "acct:me@hypothes.is"},
+            launch_agents=tmp_path / "none",
+            systemd_dir=tmp_path / "none",
+            health_file=tmp_path / "health.json",
+            ia_file=tmp_path / "ia.md",
+            offline=True,
+            live_call=call,
+        )
+        assert "claude live" not in [c.name for c in doctor.run_checks(**kwargs)]
+        assert calls == []
+        assert "claude live" in [c.name for c in doctor.run_checks(live=True, **kwargs)]
+        assert len(calls) == 1
+
+    def test_live_and_offline_together_are_refused(self, capsys):
+        with pytest.raises(SystemExit):
+            doctor.main(["--live", "--offline"])
+        assert "--offline" in capsys.readouterr().err
+
+
 class TestExitCode:
     def test_nonzero_when_any_check_fails(self):
         checks = [doctor.Check("ok", "a", ""), doctor.Check("fail", "b", "")]

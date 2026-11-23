@@ -16,6 +16,13 @@ the token (one GET to /api/profile; skip it with --offline).
 
     python3 scripts/doctor.py
     python3 scripts/doctor.py --offline   # no network: skip the token check
+    python3 scripts/doctor.py --live      # also make one small billed claude call
+
+`claude auth status` reads the login stored on this machine and nothing else, so
+it can call a credential the API has since refused "signed in". --live settles
+it the way the watcher would find out: one real call through poll.py's own code
+path, a few cents at most. It is opt-in because it is the only check that costs
+money.
 
 Exits non-zero if anything is broken, so it can run from a cron/CI check.
 """
@@ -355,6 +362,43 @@ def check_claude(config):
     return Check("ok", "claude cli", f"{binary}, signed in{via}")  # never print the account
 
 
+# Small on purpose: the call is billed by the token, and all it has to prove is
+# that the CLI can reach a model with the login the watcher gives it.
+LIVE_PROMPT = 'Respond with ONLY this JSON object and nothing else: {"ok": true}'
+
+
+def call_classifier(prompt, meta):
+    """One real call through the watcher's own path (poll.call_sonnet).
+
+    Imported here, not at the top: poll.py is the watcher itself, and only
+    --live needs it. A single attempt, since a health check should report a
+    failure rather than wait out poll.py's 30-second retry.
+    """
+    import poll
+
+    return poll.call_sonnet(prompt, attempts=1, meta=meta)
+
+
+def check_claude_live(config, call=call_classifier):
+    """Make one billed call and say whether the classifier answered.
+
+    Says nothing when there is no call to make: `"model": "rules"` never runs
+    the CLI, and a missing binary has already failed check_claude.
+    """
+    if config.get("model") == "rules" or not Path(claude_bin(config)).exists():
+        return []
+    meta = {}
+    try:
+        call(LIVE_PROMPT, meta)
+    except ValueError:
+        pass  # it answered, just not in JSON: the login works, which is the question
+    except Exception as e:  # auth, a CLI that will not start, a timeout, an API outage
+        return [Check("fail", "claude live", f"a real call failed: {e}"[:300])]
+    cost = meta.get("cost_usd")
+    spent = f" (${cost:.4f})" if isinstance(cost, (int, float)) else ""
+    return [Check("ok", "claude live", f"a real call was answered{spent}")]
+
+
 def run_checks(
     now=None,
     config=None,
@@ -364,6 +408,8 @@ def run_checks(
     ia_file=IA_FILE,
     offline=False,
     fetch_profile=fetch_profile,
+    live=False,
+    live_call=call_classifier,
 ):
     now = now or datetime.now(timezone.utc)
     config = load_config() if config is None else config
@@ -376,6 +422,7 @@ def run_checks(
         *check_since(config),
         *check_taxonomy(ia_file),
         check_claude(config),
+        *(check_claude_live(config, live_call) if live else []),
         *check_units(units),
         check_heartbeat(
             load_health(health_file), now, max_age, float(config.get("max_daily_usd", 0) or 0)
@@ -397,8 +444,15 @@ def main(argv=None):
         action="store_true",
         help="skip the token check, the one check that needs the network",
     )
+    ap.add_argument(
+        "--live",
+        action="store_true",
+        help="also make one small billed claude call, to test the login for real",
+    )
     args = ap.parse_args(argv)
-    checks = run_checks(offline=args.offline)
+    if args.live and args.offline:
+        ap.error("--live makes a network call, so it cannot be combined with --offline")
+    checks = run_checks(offline=args.offline, live=args.live)
     if args.json:
         print(json.dumps([c._asdict() for c in checks], indent=2))
     else:

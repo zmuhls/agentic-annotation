@@ -197,6 +197,12 @@ invisible and exits non-zero if any of them is broken:
   how many annotations took the rules fallback on the last run, which is how a
   live-but-degraded classifier shows up.
 
+The sign-in check asks `claude auth status`, which reads the login stored on
+your machine and costs nothing, but cannot tell whether the API still accepts
+that login. `python3 scripts/doctor.py --live` adds one real call through the
+watcher's own code path, which settles it. It is the only check that is
+billed (a few cents at most), so it runs only when you ask.
+
 A run that does not complete says so rather than leaving the last good stamp in
 place. The scheduler sends `SIGTERM` when the machine sleeps or the job is
 unloaded, which can land in the middle of a classification that takes minutes;

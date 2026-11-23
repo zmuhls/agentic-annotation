@@ -157,6 +157,7 @@ exists only for generating a unit meant for another machine.)
 
 ```sh
 python3 scripts/doctor.py     # config, token, taxonomy, claude cli, scheduler unit, heartbeat
+python3 scripts/doctor.py --live   # the same, plus one small billed claude call to test the login
 tail -f logs/watcher.log
 ```
 
