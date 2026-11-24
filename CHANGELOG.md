@@ -9,6 +9,14 @@ on `main`.
 
 ### Changed
 
+- The heartbeat says how long a credential hold has lasted. A lapse is logged
+  once when it begins, so a token dead for three weeks left one log line long
+  out of sight and a heartbeat that read just as it had five minutes in. Once a
+  token or claude cli hold passes a day, `data/health.json`, and so
+  `doctor.py`, reads e.g. `api token not recognized since 2026-11-03 (21 days)`.
+  The start date is the mtime of the lapse marker that `note_once` already
+  keeps, so there is no new state file and no extra log line.
+
 - README corrections. The intro and diagram said only `revision`, `expansion`
   and `condense` produce action files, when all 17 action tags do. The tag
   section said to edit the vocabulary in `ia.md`, but the tags that produce
@@ -174,6 +182,14 @@ on `main`.
   explain the kill.
 
 ### Fixed
+
+- `poll.main()` now releases its run lock when it returns. Left to garbage
+  collection, a run that held the queue on a claude cli failure kept the lock,
+  because the caught error's traceback pinned the frame that held it, so a
+  second `main()` in the same process found it taken and returned silently. The
+  live watcher was unaffected, since each scheduled poll is a new process, but
+  a login-lapse test passed without its second poll ever running. That test
+  now asserts the second poll retries the held annotation.
 
 - An API reply that parses as JSON but is not the shape the endpoint sends is
   now handled as a network fault, like a reply that is not JSON. A proxy or a

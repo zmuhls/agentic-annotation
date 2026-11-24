@@ -7,7 +7,9 @@ CLI and never spend real API money.
 import http.client
 import io
 import json
+import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -731,6 +733,13 @@ class TestCostVisibility:
         assert self._health()["cost_usd_total"] == 0.02
 
 
+def _backdate(marker, **ago):
+    """Age a fault marker as though its lapse began `ago` before now; return that moment."""
+    began = datetime.now(timezone.utc) - timedelta(**ago)
+    os.utime(marker, (began.timestamp(), began.timestamp()))
+    return began
+
+
 def _rows(*stamps):
     return [{"id": f"a{i}", "updated": s} for i, s in enumerate(stamps)]
 
@@ -883,13 +892,24 @@ class TestLoginLapse:
 
     def test_a_standing_lapse_is_logged_once_not_every_poll(self, monkeypatch):
         self._run(monkeypatch, signed_out_from=0)
-        _, health = self._run(monkeypatch, signed_out_from=0)
+        calls, health = self._run(monkeypatch, signed_out_from=0)
+        # the second poll really runs, retrying the first held row, rather than
+        # finding the first poll's lock still held and returning unseen
+        assert calls == ["a0"]
         text = poll.LOG_FILE.read_text()
         assert text.count("not authenticated") == 1
         assert text.count("processing") == 1  # the retrying poll stays quiet
         assert health["status"] == "auth"
         assert "3 waiting" in health["detail"]
         assert not poll.CURSOR_FILE.exists()
+
+    def test_a_long_lapse_says_how_long_in_the_heartbeat(self, monkeypatch):
+        self._run(monkeypatch, signed_out_from=0)
+        began = _backdate(poll.AUTHFAIL_FILE, days=3, hours=2)
+        _, health = self._run(monkeypatch, signed_out_from=0)
+        assert f"since {began.date().isoformat()} (3 days)" in health["detail"]
+        assert "3 waiting" in health["detail"]
+        assert "sign in" in health["detail"]
 
     def test_a_dry_run_reports_the_lapse_without_marking_it(self, monkeypatch):
         rows = _rows(*self.ROWS)
@@ -987,6 +1007,30 @@ class TestUnrecognizedToken:
         self._poll(monkeypatch, owner=None)
         self._poll(monkeypatch, owner=None)
         assert poll.LOG_FILE.read_text().count("does not recognize the token") == 1
+
+    def test_a_long_hold_says_how_long_in_the_heartbeat(self, monkeypatch):
+        # The lapse logs one line when it begins. Three weeks on, that line was
+        # long out of sight and the heartbeat read just as it had in the first
+        # five minutes, so nothing showed the hold had outlived a blip.
+        self._poll(monkeypatch, owner=None)
+        began = _backdate(poll.TOKENFAIL_FILE, days=21, hours=1)
+        self._poll(monkeypatch, owner=None)
+        detail = self._health()["detail"]
+        assert f"since {began.date().isoformat()} (21 days)" in detail
+        assert "hypothes.is/account/developer" in detail
+
+    def test_a_hold_under_a_day_names_no_duration(self, monkeypatch):
+        self._poll(monkeypatch, owner=None)
+        self._poll(monkeypatch, owner=None)
+        assert "since" not in self._health()["detail"]
+
+    def test_one_day_is_singular(self):
+        poll.TOKENFAIL_FILE.write_text("held")
+        began = _backdate(poll.TOKENFAIL_FILE, days=1, hours=1)
+        assert poll.held_since(poll.TOKENFAIL_FILE) == f"since {began.date().isoformat()} (1 day)"
+
+    def test_no_marker_names_no_duration(self):
+        assert poll.held_since(poll.TOKENFAIL_FILE) == ""
 
     def test_a_new_token_resumes_from_the_held_cursor(self, monkeypatch):
         self._poll(monkeypatch, owner=None)

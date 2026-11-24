@@ -471,6 +471,24 @@ def note_once(marker, msg):
         marker.write_text(msg)
 
 
+def held_since(marker):
+    """When a standing fault began and how many days it has held; "" under a day.
+
+    note_once logs a lapse once, so a token that died three weeks earlier left
+    a single log line long scrolled out of sight, and a heartbeat that read just
+    as it had five minutes in. note_once rewrites `marker` only when its message
+    changes, so the file's mtime is when this lapse began.
+    """
+    try:
+        began = datetime.fromtimestamp(marker.stat().st_mtime, timezone.utc)
+    except OSError:
+        return ""
+    days = (datetime.now(timezone.utc) - began).days
+    if days < 1:
+        return ""
+    return f"since {began.date().isoformat()} ({days} day{'' if days == 1 else 's'})"
+
+
 def note_network_failure(msg):
     note_once(NETFAIL_FILE, msg)
 
@@ -651,23 +669,27 @@ def process(ann, dry_run=False):
 def main():
     dry_run = "--dry-run" in sys.argv
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    lock = LOCK_FILE.open("w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return  # previous run still going
-    install_interrupt_handlers(dry_run)
-    try:
-        poll_once(dry_run)
-    except Exception as e:
-        # Anything unhandled below (a write that fails, malformed map.jsonl)
-        # used to leave only a traceback in the scheduler log while
-        # data/health.json still read "ok" from the last good run — the exact
-        # silence doctor.py exists to break.
-        log(f"poll failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        if not dry_run:
-            record_health("error", detail=f"{type(e).__name__}: {e}"[:200])
-        sys.exit(1)
+    # `with` drops the flock the moment a run ends, on every path out. Left to
+    # garbage collection, a run that held the queue on a ClaudeUnavailableError
+    # kept it: the caught error's traceback pins this frame, so a second main()
+    # in the same process found the lock taken and returned without a word.
+    with LOCK_FILE.open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return  # previous run still going
+        install_interrupt_handlers(dry_run)
+        try:
+            poll_once(dry_run)
+        except Exception as e:
+            # Anything unhandled below (a write that fails, malformed map.jsonl)
+            # used to leave only a traceback in the scheduler log while
+            # data/health.json still read "ok" from the last good run — the
+            # exact silence doctor.py exists to break.
+            log(f"poll failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            if not dry_run:
+                record_health("error", detail=f"{type(e).__name__}: {e}"[:200])
+            sys.exit(1)
 
 
 def start_cursor(dry_run):
@@ -739,7 +761,11 @@ def poll_once(dry_run):
             log(msg)
         else:
             note_once(TOKENFAIL_FILE, msg)
-            record_health("token", detail=f"api token not recognized — {TOKEN_REMEDY}")
+            lapse = held_since(TOKENFAIL_FILE)
+            record_health(
+                "token",
+                detail=f"api token not recognized{' ' + lapse if lapse else ''} — {TOKEN_REMEDY}",
+            )
         return
     if not dry_run:
         clear_token_failure()
@@ -807,12 +833,16 @@ def poll_once(dry_run):
             write_overview([json.loads(line) for line in MAP_FILE.open()])
         waiting = deferred + held
         if unavailable is not None:
+            lapse = held_since(AUTHFAIL_FILE)
             record_health(
                 unavailable.status,
                 processed=done,
                 fallbacks=fallbacks,
                 cost_usd=spend,
-                detail=f"{unavailable.summary}; {waiting} waiting — {unavailable.remedy}",
+                detail=(
+                    f"{unavailable.summary}{' ' + lapse if lapse else ''}; "
+                    f"{waiting} waiting — {unavailable.remedy}"
+                ),
             )
         elif held:
             record_health(
