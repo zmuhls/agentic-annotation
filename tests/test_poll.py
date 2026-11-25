@@ -910,6 +910,8 @@ class TestLoginLapse:
         assert f"since {began.date().isoformat()} (3 days)" in health["detail"]
         assert "3 waiting" in health["detail"]
         assert "sign in" in health["detail"]
+        recorded = datetime.fromisoformat(health["held_since"])
+        assert abs((recorded - began).total_seconds()) < 1
 
     def test_a_dry_run_reports_the_lapse_without_marking_it(self, monkeypatch):
         rows = _rows(*self.ROWS)
@@ -922,6 +924,7 @@ class TestLoginLapse:
         monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
         poll.main()
         assert "not authenticated" in poll.LOG_FILE.read_text()
+        assert poll.LOG_FILE.read_text().strip().endswith("(dry run)")
         assert not poll.AUTHFAIL_FILE.exists()
         assert not poll.HEALTH_FILE.exists()
 
@@ -1018,6 +1021,32 @@ class TestUnrecognizedToken:
         detail = self._health()["detail"]
         assert f"since {began.date().isoformat()} (21 days)" in detail
         assert "hypothes.is/account/developer" in detail
+
+    def test_the_heartbeat_records_when_the_hold_began(self, monkeypatch):
+        # doctor.py fails a hold past a day; it reads this, not the prose detail
+        self._poll(monkeypatch, owner=None)
+        began = _backdate(poll.TOKENFAIL_FILE, days=21, hours=1)
+        self._poll(monkeypatch, owner=None)
+        recorded = datetime.fromisoformat(self._health()["held_since"])
+        assert abs((recorded - began).total_seconds()) < 1
+
+    def test_a_hold_records_its_start_from_the_first_poll(self, monkeypatch):
+        self._poll(monkeypatch, owner=None)
+        assert "held_since" in self._health()
+
+    def test_a_cleared_hold_records_no_start(self, monkeypatch):
+        self._poll(monkeypatch, owner=None)
+        self._poll(monkeypatch, owner=poll.CONFIG.get("user"))
+        assert "held_since" not in self._health()
+
+    def test_a_dry_run_line_says_it_was_a_dry_run(self, monkeypatch):
+        # the daily review's own dry run wrote this line unmarked, so it read
+        # as the watcher re-logging a lapse note_once had already logged
+        monkeypatch.setattr(poll.sys, "argv", ["poll.py", "--dry-run"])
+        self._poll(monkeypatch, owner=None)
+        line = poll.LOG_FILE.read_text().strip()
+        assert "does not recognize the token" in line
+        assert line.endswith("(dry run)")
 
     def test_a_hold_under_a_day_names_no_duration(self, monkeypatch):
         self._poll(monkeypatch, owner=None)

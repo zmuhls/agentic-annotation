@@ -147,6 +147,44 @@ class TestCheckHeartbeat:
         assert check.level == "warn"
         assert "api-unreachable" in check.detail
 
+    def _held(self, days, hours=0):
+        began = self._now() - timedelta(days=days, hours=hours)
+        return self._health(
+            2, status="token", detail="api token not recognized", held_since=began.isoformat()
+        )
+
+    def test_a_hold_under_a_day_is_a_warning(self):
+        # a token mid-rotation or a login that just lapsed is not yet broken
+        assert doctor.check_heartbeat(self._held(0, hours=23), self._now(), 900).level == "warn"
+
+    def test_a_hold_past_a_day_fails(self):
+        # --offline skips the token check, so a three-week token hold used to
+        # read warn and exit 0 from a cron check; the heartbeat now says broken
+        check = doctor.check_heartbeat(self._held(21, hours=1), self._now(), 900)
+        assert check.level == "fail"
+        assert "token" in check.detail
+
+    def test_a_hold_of_exactly_one_day_fails(self):
+        assert doctor.check_heartbeat(self._held(1), self._now(), 900).level == "fail"
+
+    def test_a_transient_status_with_no_hold_stays_a_warning(self):
+        # a wifi drop records no held_since, however long the last poll was down
+        health = self._health(2, status="api-unreachable", detail="dns")
+        assert doctor.check_heartbeat(health, self._now(), 900).level == "warn"
+
+    def test_an_unreadable_hold_start_stays_a_warning(self):
+        health = self._health(2, status="token", held_since="not a date")
+        assert doctor.check_heartbeat(health, self._now(), 900).level == "warn"
+
+    def test_a_naive_hold_start_is_read_as_utc(self):
+        began = (self._now() - timedelta(days=2)).replace(tzinfo=None).isoformat()
+        health = self._health(2, status="auth", held_since=began)
+        assert doctor.check_heartbeat(health, self._now(), 900).level == "fail"
+
+    def test_a_heartbeat_from_before_held_since_existed_stays_a_warning(self):
+        health = self._health(2, status="token", detail="api token not recognized since x")
+        assert doctor.check_heartbeat(health, self._now(), 900).level == "warn"
+
     def test_rules_fallbacks_are_surfaced(self):
         # classification silently degrading to rules is the other silent failure
         check = doctor.check_heartbeat(self._health(2, fallbacks=3), self._now(), 900)

@@ -9,6 +9,21 @@ on `main`.
 
 ### Changed
 
+- `doctor.py` fails the heartbeat on a credential hold that has lasted over a
+  day. A hold that only a person can clear (a token the API does not
+  recognize, a claude cli that is signed out or gone) used to read `warn`
+  however long it lasted. `--offline` skips the token check, so a token dead
+  for three weeks exited 0 from a cron check. `poll.py` now records the hold's
+  start in `data/health.json` as `held_since`, and doctor reads that field
+  rather than the prose `detail`. A hold under a day, a network fault and the
+  daily ceiling all stay warnings. An older heartbeat with no `held_since`
+  also stays a warning, until the next poll writes the field.
+
+- A `--dry-run` that meets a token or claude cli hold now ends its log line
+  with `(dry run)`, as the `processing …` line already did. Unmarked, the
+  daily review's own dry run read in `watcher.log` as the watcher re-logging a
+  lapse that `note_once` had already logged once.
+
 - The heartbeat says how long a credential hold has lasted. A lapse is logged
   once when it begins, so a token dead for three weeks left one log line long
   out of sight and a heartbeat that read just as it had five minutes in. Once a

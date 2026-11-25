@@ -471,17 +471,27 @@ def note_once(marker, msg):
         marker.write_text(msg)
 
 
+def hold_start(marker):
+    """When the standing fault `marker` records began, or None with no marker.
+
+    note_once rewrites `marker` only when its message changes, so the file's
+    mtime is when this lapse began.
+    """
+    try:
+        return datetime.fromtimestamp(marker.stat().st_mtime, timezone.utc)
+    except OSError:
+        return None
+
+
 def held_since(marker):
     """When a standing fault began and how many days it has held; "" under a day.
 
     note_once logs a lapse once, so a token that died three weeks earlier left
     a single log line long scrolled out of sight, and a heartbeat that read just
-    as it had five minutes in. note_once rewrites `marker` only when its message
-    changes, so the file's mtime is when this lapse began.
+    as it had five minutes in.
     """
-    try:
-        began = datetime.fromtimestamp(marker.stat().st_mtime, timezone.utc)
-    except OSError:
+    began = hold_start(marker)
+    if began is None:
         return ""
     days = (datetime.now(timezone.utc) - began).days
     if days < 1:
@@ -493,13 +503,18 @@ def note_network_failure(msg):
     note_once(NETFAIL_FILE, msg)
 
 
-def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0):
+def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0, hold=None):
     """Stamp proof that a poll actually ran, for scripts/doctor.py to read.
 
     The watcher once stopped for four days in silence: its scheduler unit named
     an interpreter that had since been uninstalled, so the process never
     started and never logged. An empty log looks exactly like a quiet week —
     a file whose timestamp stops advancing does not.
+
+    `hold` is the marker of a fault only a person can clear (a dead token, a
+    signed-out or missing CLI). Its start goes in as `held_since`, which
+    doctor.py reads to fail a hold that has outlived a day; the prose `detail`
+    is for people, not for parsing.
     """
     HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
     # Carry the lifetime spend forward. Each classification is a real ~$0.10
@@ -513,23 +528,21 @@ def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0):
         except (OSError, ValueError, TypeError):
             spent = 0.0  # a corrupt stamp restarts the tally, never fails a poll
     now = datetime.now(timezone.utc)
-    HEALTH_FILE.write_text(
-        json.dumps(
-            {
-                "last_run": now.isoformat(timespec="seconds"),
-                "status": status,
-                "processed": processed,
-                "fallbacks": fallbacks,
-                "cost_usd": round(cost_usd, 4),
-                "cost_usd_total": round(spent + cost_usd, 4),
-                "cost_day": now.date().isoformat(),
-                "cost_usd_today": round(spent_today() + cost_usd, 4),
-                "detail": detail,
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+    stamp = {
+        "last_run": now.isoformat(timespec="seconds"),
+        "status": status,
+        "processed": processed,
+        "fallbacks": fallbacks,
+        "cost_usd": round(cost_usd, 4),
+        "cost_usd_total": round(spent + cost_usd, 4),
+        "cost_day": now.date().isoformat(),
+        "cost_usd_today": round(spent_today() + cost_usd, 4),
+        "detail": detail,
+    }
+    began = hold_start(hold) if hold is not None else None
+    if began is not None:
+        stamp["held_since"] = began.isoformat(timespec="seconds")
+    HEALTH_FILE.write_text(json.dumps(stamp, indent=2) + "\n")
 
 
 def spent_today():
@@ -758,13 +771,16 @@ def poll_once(dry_run):
             "polling holds at the cursor until then"
         )
         if dry_run:
-            log(msg)
+            # marked, or the daily review's own dry run reads in the log as the
+            # watcher re-logging a lapse note_once already logged once
+            log(f"{msg} (dry run)")
         else:
             note_once(TOKENFAIL_FILE, msg)
             lapse = held_since(TOKENFAIL_FILE)
             record_health(
                 "token",
                 detail=f"api token not recognized{' ' + lapse if lapse else ''} — {TOKEN_REMEDY}",
+                hold=TOKENFAIL_FILE,
             )
         return
     if not dry_run:
@@ -810,7 +826,8 @@ def poll_once(dry_run):
         except ClaudeUnavailableError as e:
             msg = f"{e}; new annotations wait in the queue until then"
             if dry_run:
-                log(msg)  # a dry run marks nothing, so the real watcher still logs it
+                # a dry run marks nothing, so the real watcher still logs it
+                log(f"{msg} (dry run)")
             else:
                 note_once(AUTHFAIL_FILE, msg)
             unavailable = e
@@ -843,6 +860,7 @@ def poll_once(dry_run):
                     f"{unavailable.summary}{' ' + lapse if lapse else ''}; "
                     f"{waiting} waiting — {unavailable.remedy}"
                 ),
+                hold=AUTHFAIL_FILE,
             )
         elif held:
             record_health(

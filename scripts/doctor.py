@@ -33,7 +33,7 @@ import plistlib
 import subprocess
 import sys
 from collections import namedtuple
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +55,10 @@ SYSTEMD_DIR = Path.home() / ".config" / "systemd" / "user"
 DEFAULT_INTERVAL = 300
 # three missed polls: one laptop sleep is normal, three in a row is not
 MISSED_POLLS_ALLOWED = 3
+# A hold only a person can clear (a dead token, a signed-out CLI) that has
+# outlived a day is broken, not a blip. Without this a token hold read "warn"
+# for three weeks, and `--offline`, which skips the token check, exited 0.
+HOLD_DAYS_ALLOWED = 1
 
 Unit = namedtuple("Unit", "path interpreter interval")
 Check = namedtuple("Check", "level name detail")  # level: ok | warn | fail
@@ -153,6 +157,19 @@ def _spend_note(health, now, max_daily_usd):
     return "".join(f", {p}" for p in parts)
 
 
+def _hold_start(health):
+    """The `held_since` poll.py records for a hold that needs a person, or None.
+
+    Absent for a fault that clears itself (a wifi drop, the daily ceiling) and
+    from heartbeats written before the field existed; both stay warnings.
+    """
+    try:
+        began = datetime.fromisoformat(health.get("held_since") or "")
+    except (TypeError, ValueError):
+        return None
+    return began if began.tzinfo else began.replace(tzinfo=timezone.utc)
+
+
 def check_heartbeat(health, now, max_age_seconds, max_daily_usd=0):
     """poll.py stamps data/health.json on every completed run."""
     if health is None:
@@ -170,8 +187,10 @@ def check_heartbeat(health, now, max_age_seconds, max_daily_usd=0):
     status = health.get("status", "ok")
     fallbacks = health.get("fallbacks") or 0
     if status != "ok":
+        began = _hold_start(health)
+        stuck = began is not None and now - began >= timedelta(days=HOLD_DAYS_ALLOWED)
         return Check(
-            "warn",
+            "fail" if stuck else "warn",
             "heartbeat",
             f"last poll {when} ended {status}: {health.get('detail', '')}"[:160],
         )

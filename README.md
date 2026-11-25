@@ -195,7 +195,10 @@ invisible and exits non-zero if any of them is broken:
 - the heartbeat: every completed poll stamps `data/health.json`, so a timestamp
   older than three intervals means no poll is happening. The same file records
   how many annotations took the rules fallback on the last run, which is how a
-  live-but-degraded classifier shows up.
+  live-but-degraded classifier shows up. A hold only a person can clear (a
+  token the API no longer recognizes, a CLI signed out or gone) is a warning
+  for its first day and a failure after that, so `doctor.py --offline`, which
+  skips the token check, still exits non-zero on a token that has stayed dead.
 
 The sign-in check asks `claude auth status`, which reads the login stored on
 your machine and costs nothing, but cannot tell whether the API still accepts
