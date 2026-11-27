@@ -432,6 +432,48 @@ class TestNetworkFailureNotice:
         poll.clear_network_failure()
         assert not poll.LOG_FILE.exists()
 
+    def test_a_dry_run_outage_leaves_the_one_line_to_the_watcher(self):
+        # the marker a dry run wrote kept the real watcher from logging the outage
+        msg = "hypothesis api unreachable (dns); retrying next run"
+        poll.note_network_failure(msg, dry_run=True)
+        assert not poll.NETFAIL_FILE.exists()
+        assert poll.LOG_FILE.read_text().strip().endswith(f"{msg} (dry run)")
+        poll.note_network_failure(msg)
+        assert poll.LOG_FILE.read_text().strip().endswith(msg)
+
+    def test_a_dry_run_recovery_leaves_the_notice_standing(self):
+        # unlinked by a dry run, the real watcher never logged "reachable again"
+        poll.note_network_failure("hypothesis api unreachable (dns); retrying next run")
+        poll.clear_network_failure(dry_run=True)
+        assert poll.NETFAIL_FILE.exists()
+        assert "reachable again" not in poll.LOG_FILE.read_text()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            OSError("dns went away"),
+            poll.urllib.error.HTTPError("http://x", 503, "Service Unavailable", {}, None),
+        ],
+        ids=["unreachable", "503"],  # an HTTPError with no body breaks pytest's own ids
+    )
+    def test_a_dry_run_poll_during_an_outage_writes_no_notice(self, monkeypatch, error):
+        def boom(cursor):
+            raise error
+
+        monkeypatch.setattr(poll, "fetch_new", boom)
+        poll.poll_once(dry_run=True)
+        assert not poll.NETFAIL_FILE.exists()
+        assert poll.LOG_FILE.read_text().strip().endswith("(dry run)")
+
+    def test_a_dry_run_poll_after_an_outage_leaves_the_recovery_to_the_watcher(self, monkeypatch):
+        poll.note_network_failure("hypothesis api unreachable (dns); retrying next run")
+        monkeypatch.setattr(poll, "fetch_new", lambda cursor: [])
+        poll.poll_once(dry_run=True)
+        assert poll.NETFAIL_FILE.exists()
+        poll.poll_once(dry_run=False)
+        assert not poll.NETFAIL_FILE.exists()
+        assert "reachable again" in poll.LOG_FILE.read_text()
+
 
 class TestLoadConfig:
     def test_returns_dict(self):

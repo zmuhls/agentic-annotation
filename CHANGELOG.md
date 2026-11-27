@@ -9,6 +9,14 @@ on `main`.
 
 ### Changed
 
+- A `--dry-run` no longer writes or clears `data/.netfail`. During an outage
+  it wrote the marker that `note_once` keeps so each outage is logged once,
+  which took that one line from the real watcher: its next run found the
+  message already recorded and logged nothing. After an outage, a dry run
+  unlinked the marker, so the watcher never logged `reachable again`. A dry run
+  now logs the fault ending in `(dry run)` and leaves the marker alone, as it
+  already did for the token and claude cli holds.
+
 - `doctor.py` fails the heartbeat on a credential hold that has lasted over a
   day. A hold that only a person can clear (a token the API does not
   recognize, a claude cli that is signed out or gone) used to read `warn`

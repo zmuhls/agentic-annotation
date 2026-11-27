@@ -499,8 +499,17 @@ def held_since(marker):
     return f"since {began.date().isoformat()} ({days} day{'' if days == 1 else 's'})"
 
 
-def note_network_failure(msg):
-    note_once(NETFAIL_FILE, msg)
+def note_network_failure(msg, dry_run=False):
+    """Log a network fault once per outage; a dry run logs it marked, unremembered.
+
+    A dry run that wrote the marker took the outage's one log line from the
+    real watcher, whose next run found the message already recorded and
+    logged nothing.
+    """
+    if dry_run:
+        log(f"{msg} (dry run)")
+    else:
+        note_once(NETFAIL_FILE, msg)
 
 
 def record_health(status, processed=0, fallbacks=0, detail="", cost_usd=0.0, hold=None):
@@ -592,8 +601,9 @@ def install_interrupt_handlers(dry_run):
         signal.signal(sig, _interrupt_handler(dry_run))
 
 
-def clear_network_failure():
-    if NETFAIL_FILE.exists():
+def clear_network_failure(dry_run=False):
+    # a dry run leaves the marker, so the real watcher still logs the recovery
+    if not dry_run and NETFAIL_FILE.exists():
         NETFAIL_FILE.unlink()
         log("hypothesis api reachable again")
 
@@ -743,7 +753,7 @@ def poll_once(dry_run):
     except urllib.error.HTTPError as e:  # a URLError/OSError subclass — catch first
         reason = api_reason(e)
         if e.code in RETRY_STATUSES:
-            note_network_failure(f"hypothesis api returned {reason}; retrying next run")
+            note_network_failure(f"hypothesis api returned {reason}; retrying next run", dry_run)
         else:
             # search() declined to retry this: a 4xx such as an unreadable `since`
             # is refused the same way every run until config.json changes, so
@@ -751,17 +761,18 @@ def poll_once(dry_run):
             note_network_failure(
                 f"hypothesis api rejected the request ({reason}); a retry "
                 "will not fix this — check config.json or run "
-                "scripts/doctor.py"
+                "scripts/doctor.py",
+                dry_run,
             )
         if not dry_run:
             record_health("api-error", detail=reason)
         return
     except OSError as e:
-        note_network_failure(f"hypothesis api unreachable ({e}); retrying next run")
+        note_network_failure(f"hypothesis api unreachable ({e}); retrying next run", dry_run)
         if not dry_run:
             record_health("api-unreachable", detail=str(e))
         return
-    clear_network_failure()
+    clear_network_failure(dry_run)
     if not recognized:
         # The anonymous rows a search would bring back are public only, and
         # filing one moves the cursor past every private annotation before it.
