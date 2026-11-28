@@ -50,7 +50,9 @@ Any of these tags on an annotation makes it an editorial directive: the
 watcher has Sonnet write a concrete instruction file into `actions/`, one
 file per action tag (tags combine — e.g. `hedge` + `cite` yields two files).
 The annotation's note states intent; the instructions operationalize it
-against the anchored passage.
+against the anchored passage. Every row of a table headed `| Tag | Directive |`
+is an action tag, so adding a row adds a tag and deleting one retires it; a tag
+is a plain slug (letters, digits, `-` or `_`).
 
 ### Prose & argument (for written artifacts)
 

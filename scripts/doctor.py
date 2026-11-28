@@ -11,8 +11,9 @@ So check the things whose absence is otherwise invisible: a scheduler unit for
 *this* checkout whose interpreter still exists, a heartbeat young enough that a
 poll must have happened, the `claude` binary and whether it is signed in (`claude
 auth status`, which spends nothing), the config keys poll.py needs, whether
-the taxonomy is still the shipped example, and whether the API still recognizes
-the token (one GET to /api/profile; skip it with --offline).
+the taxonomy is still the shipped example, whether every action tag it lists
+can write a file, and whether the API still recognizes the token (one GET to
+/api/profile; skip it with --offline).
 
     python3 scripts/doctor.py
     python3 scripts/doctor.py --offline   # no network: skip the token check
@@ -46,6 +47,7 @@ from appconfig import (  # noqa: E402
     load_config,
 )
 from bootstrap_ia import get as api_get  # noqa: E402
+from build_ia import BUILTIN_ACTION_TAGS, directive_cells, vocabulary_tags  # noqa: E402
 
 POLL_SCRIPT = ROOT / "scripts" / "poll.py"
 HEALTH_FILE = ROOT / "data" / "health.json"
@@ -244,6 +246,42 @@ def check_taxonomy(ia_file=IA_FILE):
     ]
 
 
+def check_action_tags(ia_file=IA_FILE):
+    """Flag action-vocabulary rows that will write no file; say nothing when
+    every row works.
+
+    build_ia.py takes its action tags from the `| Tag | Directive |` tables of
+    the taxonomy the classifier reads. A row it cannot use, or a taxonomy with
+    no such table, fails quietly: the tag is simply never acted on.
+    """
+    source = ia_source(ia_file)
+    if not source.exists():
+        return []  # check_taxonomy already fails this
+    text = source.read_text()
+    tags = vocabulary_tags(text)
+    if not tags:
+        return [
+            Check(
+                "warn",
+                "action tags",
+                f"{source.name} has no usable row in a table headed `| Tag | Directive |`, "
+                f"so only the {len(BUILTIN_ACTION_TAGS)} built-in action tags write files",
+            )
+        ]
+    unusable = [cell for cell in directive_cells(text) if cell.lower() not in tags]
+    if unusable:
+        return [
+            Check(
+                "warn",
+                "action tags",
+                f"no file is written for {', '.join(f'`{c}`' for c in unusable)} in "
+                f"{source.name}: an action tag must be a plain slug (letters, digits, "
+                "- or _) and not a status tag",
+            )
+        ]
+    return []
+
+
 def check_since(config):
     """Flag a `since` the api may refuse; say nothing when it is fine or unset.
 
@@ -440,6 +478,7 @@ def run_checks(
         *token,
         *check_since(config),
         *check_taxonomy(ia_file),
+        *check_action_tags(ia_file),
         check_claude(config),
         *(check_claude_live(config, live_call) if live else []),
         *check_units(units),

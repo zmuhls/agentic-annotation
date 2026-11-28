@@ -92,6 +92,17 @@ _ROUTING = {
 }
 
 
+@pytest.fixture(autouse=True)
+def builtin_action_tags(monkeypatch):
+    """Pin the action vocabulary to the shipped one.
+
+    build_ia reads it from the local, gitignored ia.md at import, so without
+    this a maintainer who adds or drops a tag there would change what the
+    suite asserts on their machine but not in CI.
+    """
+    monkeypatch.setattr(build_ia, "ACTION_TAGS", build_ia.BUILTIN_ACTION_TAGS)
+
+
 @pytest.fixture
 def routing(monkeypatch):
     for name, value in _ROUTING.items():

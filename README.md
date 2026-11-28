@@ -110,11 +110,15 @@ files):
 - **Development objects** — `bug`, `feature`, `a11y`
 - **Status (no action file)** — `outstanding`, `resolved`
 
-These tags are fixed in code (`ACTION_TAGS` and `STATUS_TAGS` in
-`scripts/build_ia.py`). What each one asks for is worded in the Action
-vocabulary section of `architecture/ia.md`, which Sonnet reads on every
-classification, so rewording a directive there changes the instructions it
-writes. A tag added only to `ia.md` produces no file.
+The Action vocabulary section of `architecture/ia.md` defines these tags. Each
+row of a table headed `| Tag | Directive |` is one action tag, and its
+directive is what Sonnet, which reads `ia.md` on every classification, is
+asked to do. Add a row (say `` `translate` ``) and that tag writes files from
+the next poll. Delete a row and it stops. Reword a directive and the
+instructions change. A tag must be a plain slug (letters, digits, `-` or `_`).
+`doctor.py` names any row the watcher cannot use. The two status tags are
+fixed in code (`STATUS_TAGS` in `scripts/build_ia.py`). An `ia.md` with no
+Directive table falls back to the 17 tags above (`BUILTIN_ACTION_TAGS`).
 
 Untagged annotations are still classified into the IA with a one-sentence
 "role" statement.

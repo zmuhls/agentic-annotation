@@ -8,6 +8,7 @@ for the bulk backfill (safe to re-run — it rebuilds the map from scratch).
 """
 
 import json
+import re
 import sys
 import urllib.parse
 from collections import Counter
@@ -15,7 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from appconfig import load_routing  # noqa: E402
+from appconfig import ia_source, load_routing  # noqa: E402
+
+IA_FILE = ROOT / "architecture" / "ia.md"
 
 # Placement tables live in routing.json (gitignored — group ids and the sites
 # you annotate are personal), with routing.example.json as the documented
@@ -31,7 +34,9 @@ GENERAL_GROUPS = frozenset(ROUTING.get("general_groups", ()))
 GENERAL_NODE = ROUTING.get("general_node", "reading/general")
 DEFAULT_NODE = ROUTING.get("default_node", "inbox")
 
-ACTION_TAGS = (
+# The shipped action vocabulary, and the fallback for an ia.md that defines
+# none. architecture/ia.example.md lists exactly these, in this order.
+BUILTIN_ACTION_TAGS = (
     # prose & argument
     "revision",
     "expansion",
@@ -54,6 +59,52 @@ ACTION_TAGS = (
     "a11y",
 )
 STATUS_TAGS = ("outstanding", "resolved")
+# An action tag becomes part of an actions/ file name, so it stays a plain slug.
+TAG_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]*")
+
+
+def directive_cells(text):
+    """The first-column cell (backticks optional) of each row in every table
+    whose second column is headed `Directive`, which is how ia.md's Action
+    vocabulary lists its tags. The Status table is headed `Meaning`, so its
+    tags are not read."""
+    cells, in_table = [], False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            in_table = False
+            continue
+        row = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(row) >= 2 and row[1].lower() == "directive":
+            in_table = True
+        elif in_table:
+            cell = row[0].strip("`").strip()
+            if cell and not set(cell) <= set("-: "):  # skip the |---| separator row
+                cells.append(cell)
+    return cells
+
+
+def vocabulary_tags(text):
+    """The action tags an ia.md defines, in file order: each Directive-table
+    cell that is a plain slug and not a status tag, counted once."""
+    tags = []
+    for cell in directive_cells(text):
+        tag = cell.lower()
+        if TAG_PATTERN.fullmatch(tag) and tag not in STATUS_TAGS and tag not in tags:
+            tags.append(tag)
+    return tuple(tags)
+
+
+def load_action_tags(ia_file=IA_FILE):
+    """The action tags of the taxonomy the classifier reads (ia.md, else the
+    example), so a row added there writes files. When it defines none, the
+    built-in set applies and doctor.py warns."""
+    source = ia_source(ia_file)
+    text = source.read_text() if source.exists() else ""
+    return vocabulary_tags(text) or BUILTIN_ACTION_TAGS
+
+
+ACTION_TAGS = load_action_tags()
 
 
 def workflow_for(tags):

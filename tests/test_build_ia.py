@@ -86,6 +86,58 @@ class TestActionsFor:
     def test_empty(self):
         assert actions_for([]) == []
 
+    def test_a_tag_the_taxonomy_adds_is_acted_on(self, monkeypatch):
+        monkeypatch.setattr(build_ia, "ACTION_TAGS", ("revision", "translate"))
+        assert actions_for(["Translate", "cite"]) == ["translate"]
+
+
+class TestVocabularyTags:
+    """ia.md's `| Tag | Directive |` tables are the action vocabulary."""
+
+    TABLE = "| Tag | Directive |\n|-----|-----------|\n"
+
+    def test_the_shipped_example_lists_exactly_the_builtin_tags(self):
+        example = build_ia.ROOT / "architecture" / "ia.example.md"
+        assert build_ia.vocabulary_tags(example.read_text()) == build_ia.BUILTIN_ACTION_TAGS
+
+    def test_reads_every_directive_table_in_file_order(self):
+        text = (
+            self.TABLE
+            + "| `revision` | a |\n| `hedge` | b |\n\n### more\n\n"
+            + self.TABLE
+            + "| `translate` | c |\n"
+        )
+        assert build_ia.vocabulary_tags(text) == ("revision", "hedge", "translate")
+
+    def test_skips_the_status_table_and_status_tags(self):
+        text = (
+            self.TABLE + "| `revision` | a |\n| `resolved` | b |\n\n"
+            "| Tag | Meaning |\n|---|---|\n| `outstanding` | open |\n"
+        )
+        assert build_ia.vocabulary_tags(text) == ("revision",)
+
+    def test_lowercases_and_drops_unsafe_or_repeated_tags(self):
+        text = self.TABLE + "| `Cite` | a |\n| `cite` | b |\n| `../x` | c |\n| `two words` | d |\n"
+        assert build_ia.vocabulary_tags(text) == ("cite",)
+
+    def test_backticks_are_optional(self):
+        assert build_ia.vocabulary_tags(self.TABLE + "| translate | a |\n") == ("translate",)
+
+    def test_alignment_separators_are_not_tags(self):
+        text = "| Tag | Directive |\n|:----|:---------:|\n| `cite` | a |\n"
+        assert build_ia.directive_cells(text) == ["cite"]
+
+    def test_a_directive_header_alone_defines_nothing(self):
+        assert build_ia.vocabulary_tags(self.TABLE) == ()
+
+    def test_no_vocabulary_falls_back_to_the_builtin_tags(self, tmp_path):
+        (tmp_path / "ia.md").write_text("# a taxonomy with no action tables\n")
+        assert build_ia.load_action_tags(tmp_path / "ia.md") == build_ia.BUILTIN_ACTION_TAGS
+
+    def test_the_adopters_vocabulary_replaces_the_builtin_one(self, tmp_path):
+        (tmp_path / "ia.md").write_text(self.TABLE + "| `translate` | a |\n")
+        assert build_ia.load_action_tags(tmp_path / "ia.md") == ("translate",)
+
 
 class TestWorkflowFor:
     def test_outstanding(self):

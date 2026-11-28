@@ -9,6 +9,18 @@ on `main`.
 
 ### Changed
 
+- The action tags come from `architecture/ia.md`, not a list in code. Every
+  row of a table headed `| Tag | Directive |` is one tag, so an adopter adds a
+  tag (say `translate`) by adding a row and retires one by deleting it. Before,
+  the 17 tags were fixed in `build_ia.py`, and a tag added only to `ia.md`
+  wrote no file. Tags are lowercased, must be plain slugs (they name the
+  `actions/` file), and cannot be the status tags `outstanding` or `resolved`.
+  An `ia.md` with no Directive table falls back to the 17 built-in tags. The
+  shipped `ia.example.md` lists exactly those 17, and a test holds the two
+  together. `doctor.py` warns about the fallback and names any row it cannot
+  use. The suite pins the built-in tags, so a maintainer's own `ia.md` cannot
+  change what it asserts.
+
 - A `--dry-run` no longer writes or clears `data/.netfail`. During an outage
   it wrote the marker that `note_once` keeps so each outage is logged once,
   which took that one line from the real watcher: its next run found the

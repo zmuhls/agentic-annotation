@@ -292,8 +292,9 @@ def node_ids(text):
 def split_template(text):
     """(preamble, shared tail) of an existing ia.md — everything but the nodes.
 
-    The tail is the action vocabulary and the file map: the same contract for
-    every adopter, because poll.py and build_ia.py implement it in code.
+    The tail is the action vocabulary and the file map, carried over as they
+    stand: build_ia.py reads the action tags from that vocabulary's Directive
+    tables, so a draft keeps every tag its template defines.
     """
     head, sep, rest = text.partition(NODES_HEADING)
     if not sep:

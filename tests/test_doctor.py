@@ -550,3 +550,46 @@ class TestCheckTaxonomy:
     def test_no_taxonomy_at_all_fails(self, tmp_path):
         (check,) = doctor.check_taxonomy(tmp_path / "ia.md")
         assert check.level == "fail"
+
+
+class TestCheckActionTags:
+    """Action tags come from ia.md's Directive tables; a row that cannot be used
+    writes no file, so doctor names it rather than letting the tag go quiet."""
+
+    TABLE = "| Tag | Directive |\n|-----|-----------|\n"
+
+    def test_a_usable_vocabulary_passes_silently(self, tmp_path):
+        (tmp_path / "ia.md").write_text(
+            self.TABLE + "| `revision` | Rework |\n| `translate` | Translate |\n"
+        )
+        assert doctor.check_action_tags(tmp_path / "ia.md") == []
+
+    def test_the_shipped_example_passes_silently(self):
+        assert doctor.check_action_tags(doctor.IA_FILE.with_name("ia.md.absent")) == []
+
+    def test_a_taxonomy_with_no_directive_table_warns_about_the_fallback(self, tmp_path):
+        (tmp_path / "ia.md").write_text(
+            "# mine\n\n| Tag | Meaning |\n|--|--|\n| `revision` | x |\n"
+        )
+        (check,) = doctor.check_action_tags(tmp_path / "ia.md")
+        assert check.level == "warn"
+        assert "built-in" in check.detail
+
+    def test_unusable_rows_are_named(self, tmp_path):
+        (tmp_path / "ia.md").write_text(
+            self.TABLE + "| `revision` | ok |\n| `close reading` | x |\n| `resolved` | x |\n"
+        )
+        (check,) = doctor.check_action_tags(tmp_path / "ia.md")
+        assert check.level == "warn"
+        assert "`close reading`" in check.detail and "`resolved`" in check.detail
+        assert "`revision`" not in check.detail
+
+    def test_a_table_of_only_unusable_rows_warns_about_the_fallback(self, tmp_path):
+        # no usable tag means build_ia falls back to the built-ins, so say that
+        (tmp_path / "ia.md").write_text(self.TABLE + "| `close reading` | x |\n")
+        (check,) = doctor.check_action_tags(tmp_path / "ia.md")
+        assert check.level == "warn"
+        assert "built-in" in check.detail
+
+    def test_a_missing_taxonomy_is_left_to_check_taxonomy(self, tmp_path):
+        assert doctor.check_action_tags(tmp_path / "ia.md") == []
